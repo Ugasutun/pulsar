@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "multisig_escrow",
     "merkle_whitelist",
+    "reentrancy_guard",
 ]
 
 [profile.release]
