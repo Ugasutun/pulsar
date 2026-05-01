@@ -22,6 +22,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { generateContractClient } from './tools/generate_contract_client.js';
 import { buildConditionalTransaction } from './tools/build_conditional_transaction.js';
 import { batchEvents } from './tools/batch_events.js';
 
@@ -34,6 +35,7 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  GenerateContractClientInputSchema,
   SoulboundTokenInputSchema,
   BuildConditionalTransactionInputSchema,
   BatchEventsInputSchema,
@@ -144,6 +146,8 @@ class PulsarServer {
         },
         {
           name: 'fetch_contract_spec',
+          description:
+            'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
@@ -515,6 +519,37 @@ class PulsarServer {
             required: ['xdr', 'conditions'],
           },
         },
+        {
+          name: 'generate_contract_client',
+          description:
+            'Generate a fully-typed TypeScript client class for a deployed Soroban contract. ' +
+            'Provide a contract_id to fetch the spec automatically, or pass a pre-fetched contract_spec. ' +
+            'Returns the generated TypeScript source code ready to drop into any project.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              contract_id: {
+                type: 'string',
+                description: 'Soroban contract ID (C...). Provide this OR contract_spec.',
+              },
+              contract_spec: {
+                type: 'object',
+                description:
+                  'Pre-fetched contract spec (output of fetch_contract_spec). Provide this OR contract_id.',
+              },
+              network: {
+                type: 'string',
+                enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
+                description: 'Network to use when fetching spec via contract_id.',
+              },
+              class_name: {
+                type: 'string',
+                description:
+                  'Override the generated TypeScript class name (default: derived from contract_id).',
+              },
+            },
+          },
+        },
       ],
     }));
 
@@ -698,6 +733,20 @@ class PulsarServer {
               );
             }
             const result = await buildConditionalTransaction(parsed.data);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'generate_contract_client': {
+            const parsed = GenerateContractClientInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for generate_contract_client`,
+                parsed.error.format()
+              );
+            }
+            const result = await generateContractClient(parsed.data);
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };

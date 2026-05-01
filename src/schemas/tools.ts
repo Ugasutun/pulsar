@@ -282,6 +282,46 @@ export const DeployContractInputSchema = z.object({
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
 /**
+ * Schema for generate_contract_client tool
+ *
+ * Inputs:
+ * - contract_id: Soroban contract ID to fetch spec from (optional if contract_spec provided)
+ * - contract_spec: Pre-fetched contract spec object (optional if contract_id provided)
+ * - network: Optional network override (used when fetching via contract_id)
+ * - class_name: Optional override for the generated TypeScript class name
+ */
+export const GenerateContractClientInputSchema = z.object({
+  contract_id: ContractIdSchema.optional(),
+  contract_spec: z
+    .object({
+      contract_id: z.string(),
+      network: z.string(),
+      functions: z.array(
+        z.object({
+          name: z.string(),
+          doc: z.string().optional(),
+          inputs: z.array(z.object({ name: z.string(), type: z.string() })),
+          outputs: z.array(z.object({ type: z.string() })),
+        })
+      ),
+      events: z.array(
+        z.object({
+          name: z.string(),
+          topics: z.array(z.object({ type: z.string() })).optional(),
+          data: z.object({ type: z.string() }).optional(),
+        })
+      ),
+      raw_xdr: z.string(),
+    })
+    .optional(),
+  network: NetworkSchema.optional(),
+  class_name: z
+    .string()
+    .regex(/^[A-Za-z][A-Za-z0-9]*$/, { message: 'class_name must be a valid identifier' })
+    .optional(),
+});
+
+export type GenerateContractClientInput = z.infer<typeof GenerateContractClientInputSchema>;
  * Schema for soulbound_token tool
  *
  * Actions:
