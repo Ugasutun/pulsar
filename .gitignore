@@ -32,3 +32,6 @@ coverage/
 
 # rust
 target/
+contracts/target/
+CLAUDE.md
+plan.md
