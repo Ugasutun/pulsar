@@ -141,6 +141,7 @@ import {
 
 import logger from './logger.js';
 import { PulsarError, PulsarNetworkError, PulsarValidationError } from './errors.js';
+import { createStdioTransport } from './transport/stdio.js';
 import { applyFieldProjection } from './schemas/index.js';
 import { initializeI18n } from './i18n/index.js';
 import { logToolExecution } from './audit.js';
@@ -405,6 +406,8 @@ class PulsarServer {
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
+          description:
+            'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           inputSchema: {
             type: 'object',
           description:
@@ -455,6 +458,7 @@ class PulsarServer {
             properties: {
               contract_id: {
                 type: 'string',
+                description: 'The Soroban contract address (C...)',
                 description: 'The Soroban contract address (C...) to observe events for.',
               },
               event_type: {
@@ -2208,6 +2212,7 @@ class PulsarServer {
             const parsed = SimulateTransactionsSequenceInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
+                `Invalid input for get_account_balance`,
                 `Invalid input for simulate_transaction`,
                 `Invalid input for simulate_transactions_sequence`,
                 parsed.error.format()
@@ -2227,6 +2232,12 @@ class PulsarServer {
           case 'emergency_pause': {
             const parsed = EmergencyPauseInputSchema.safeParse(args);
             if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for fetch_contract_spec`,
+                parsed.error.format()
+              );
+            }
+            const result = await fetchContractSpec(parsed.data);
               throw new PulsarValidationError(`Invalid input for emergency_pause`, parsed.error.format());
             }
             const result = await emergencyPause(parsed.data);
@@ -2248,6 +2259,7 @@ class PulsarServer {
             const parsed = SorobanMathInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
+                `Invalid input for submit_transaction`,
                 `Invalid input for compute_vesting_schedule`,
                 parsed.error.format()
               );
@@ -2326,6 +2338,7 @@ class PulsarServer {
             const parsed = ExportDataInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
+                `Invalid input for simulate_transaction`,
                 `Invalid input for export_data`,
                 parsed.error.format()
               );
@@ -2364,6 +2377,7 @@ class PulsarServer {
             const parsed = GenerateContractClientInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
+                `Invalid input for compute_vesting_schedule`,
                 `Invalid input for deploy_contract`,
                 `Invalid input for generate_contract_client`,
                 parsed.error.format()
@@ -2379,6 +2393,7 @@ class PulsarServer {
             const parsed = ManageDaoTreasuryInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
+                `Invalid input for deploy_contract`,
                 `Invalid input for manage_dao_treasury`,
                 parsed.error.format()
               );
@@ -2843,6 +2858,9 @@ class PulsarServer {
   }
 
   async run() {
+    const transport = createStdioTransport({
+      encryptionKey: config.ipcEncryptionKey,
+    });
     // Start metrics recording and endpoint
     if (config.metricsEnabled) {
       const metricsInterval = startMetricsRecording();
