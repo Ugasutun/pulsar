@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CallToolRequestSchema, ListToolsRequestSchema, ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import http from "http";
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -68,6 +72,9 @@ import {
 } from './schemas/amm.js';
 
 import logger from './logger.js';
+import { PulsarError, PulsarNetworkError, PulsarValidationError } from './errors.js';
+import { startMetricsRecording, getPrometheusMetrics } from './services/metrics.js';
+import { trackToolExecution } from './services/metrics-tracking.js';
 import { PulsarError, PulsarNetworkError, PulsarValidationError, PulsarRestrictedAddressError } from './errors.js';
 import { addressRegistry } from './services/address-registry.js';
 import { checkToolInput } from './services/address-guard.js';
@@ -966,6 +973,7 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
+            const result = await trackToolExecution('get_account_balance', () => getAccountBalance(parsed.data));
             const result = await getAccountBalance(parsed.data);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
@@ -1001,6 +1009,8 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
+            const result = await trackToolExecution('fetch_contract_spec', () => fetchContractSpec(parsed.data));
+            return { content: [{ type: "text", text: JSON.stringify(result) }] };
             const result = await fetchContractSpec(parsed.data);
             const parsed = GetAccountBalanceInputSchema.parse(args);
             const result = await getAccountBalance(parsed);
@@ -1021,6 +1031,10 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
+            const result = await trackToolExecution('submit_transaction', () => submitTransaction(parsed.data));
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
             const result = await submitTransaction(parsed.data);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
@@ -1054,7 +1068,7 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
-            const result = await simulateTransaction(parsed.data);
+            const result = await trackToolExecution('simulate_transaction', () => simulateTransaction(parsed.data));
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };
@@ -1092,6 +1106,7 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
+            const result = await trackToolExecution('compute_vesting_schedule', () => computeVestingSchedule(parsed.data));
             const result = await sorobanMath(parsed.data);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           case 'compute_vesting_schedule': {
@@ -1136,6 +1151,7 @@ class PulsarServer {
               );
               throw new PulsarValidationError(`Invalid input for manage_restricted_addresses`, parsed.error.format());
             }
+            const result = await trackToolExecution('deploy_contract', () => deployContract(parsed.data));
             const result = await manageRestrictedAddresses(parsed.data);
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
@@ -1372,7 +1388,55 @@ class PulsarServer {
     this.server.onerror = (error) => { logger.error({ error }, '[MCP Error]'); };
   }
 
+  private startMetricsServer(): http.Server | null {
+    if (!config.metricsEnabled) {
+      logger.info('Metrics disabled via METRICS_ENABLED=false');
+      return null;
+    }
+
+    const metricsServer = http.createServer(async (req, res) => {
+      if (req.url === '/metrics' && req.method === 'GET') {
+        try {
+          const metrics = await getPrometheusMetrics();
+          res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
+          res.end(metrics);
+        } catch (error) {
+          logger.error({ error }, 'Failed to generate metrics');
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Failed to generate metrics' }));
+        }
+      } else if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not found' }));
+      }
+    });
+
+    metricsServer.listen(config.metricsPort, () => {
+      logger.info(`Metrics server listening on http://localhost:${config.metricsPort}/metrics`);
+    });
+
+    metricsServer.on('error', (error) => {
+      logger.error({ error }, `Failed to start metrics server on port ${config.metricsPort}`);
+    });
+
+    return metricsServer;
+  }
+
   async run() {
+    // Start metrics recording and endpoint
+    if (config.metricsEnabled) {
+      const metricsInterval = startMetricsRecording();
+      this.startMetricsServer();
+
+      // Cleanup on exit
+      process.on('exit', () => {
+        clearInterval(metricsInterval);
+      });
+    }
+
     await addressRegistry.load();
     const transport = new StdioServerTransport();
     await this.server.connect(transport);

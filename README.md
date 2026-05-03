@@ -24,6 +24,7 @@
 - [Configuration](#configuration)
   - [Environment Variables](#environment-variables)
   - [Network Selection](#network-selection)
+  - [Monitoring with Prometheus Metrics](#monitoring-with-prometheus-metrics)
 - [Connecting to AI Assistants](#connecting-to-ai-assistants)
   - [Claude Desktop](#claude-desktop)
   - [Cursor](#cursor)
@@ -51,6 +52,7 @@
   - [Adding a New Tool](#adding-a-new-tool)
   - [Running Locally](#running-locally)
   - [Testing](#testing)
+- [Monitoring](#monitoring)
 - [Security Considerations](#security-considerations)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
@@ -313,6 +315,12 @@ STELLAR_CLI_PATH=stellar
 # Log level: error | warn | info | debug
 LOG_LEVEL=info
 
+# ─── Metrics (optional) ──────────────────────────────────────────────────────
+# Enable Prometheus metrics export (default: true)
+METRICS_ENABLED=true
+
+# Port for metrics HTTP endpoint (default: 9090)
+METRICS_PORT=9090
 # ─── RPC Routing ─────────────────────────────────────────────────────────────
 # Health check interval in milliseconds (default: 30000)
 # RPC_HEALTH_CHECK_INTERVAL_MS=30000
@@ -331,6 +339,77 @@ LOG_LEVEL=info
 | `testnet` | `https://horizon-testnet.stellar.org` | `https://soroban-testnet.stellar.org` |
 | `futurenet` | `https://horizon-futurenet.stellar.org` | `https://rpc-futurenet.stellar.org` |
 | `custom` | `HORIZON_URL` env var | `SOROBAN_RPC_URL` env var |
+
+### Monitoring with Prometheus Metrics
+
+pulsar exposes Prometheus metrics on a dedicated HTTP endpoint for real-time monitoring and alerting.
+
+#### Metrics Endpoint
+
+When `METRICS_ENABLED=true` (default), metrics are available at:
+
+```
+http://localhost:9090/metrics
+```
+
+The endpoint returns metrics in standard Prometheus text format.
+
+#### Available Metrics
+
+**Tool Execution Metrics:**
+- `pulsar_tool_invocations_total` (counter) — Total tool invocations by tool name and status (success/error)
+- `pulsar_tool_duration_seconds` (histogram) — Tool execution duration in seconds (per tool)
+- `pulsar_tool_errors_total` (counter) — Total tool errors by tool name and error type
+- `pulsar_validation_errors_total` (counter) — Input validation errors per tool
+- `pulsar_active_tool_invocations` (gauge) — Current number of active tool invocations
+
+**System Metrics:**
+- `pulsar_heap_memory_used_bytes` (gauge) — Current heap memory usage in bytes
+- `pulsar_heap_memory_total_bytes` (gauge) — Total heap memory allocated in bytes
+- `pulsar_process_*` (various) — Standard Node.js process metrics (uptime, CPU, file descriptors, etc.)
+
+**Network Metrics:**
+- `pulsar_network_requests_total` (counter) — Total network requests by service (horizon, soroban-rpc) and status
+- `pulsar_network_duration_seconds` (histogram) — Network request duration by service
+
+#### Health Check Endpoint
+
+A simple health check endpoint is available at:
+
+```
+GET http://localhost:9090/health
+```
+
+Returns:
+```json
+{
+  "status": "ok",
+  "uptime": 123.456
+}
+```
+
+#### Scraping with Prometheus
+
+Configure Prometheus to scrape pulsar metrics by adding to your `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: 'pulsar'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+```
+
+#### Disabling Metrics
+
+To disable metrics export (e.g., for reduced overhead), set:
+
+```env
+METRICS_ENABLED=false
+```
+
+The HTTP metrics endpoint will not be started, and metrics collection is skipped.
 
 ---
 
@@ -1563,6 +1642,63 @@ npm run typecheck
 
 ---
 
+## Monitoring
+
+### Prometheus Metrics
+
+pulsar exposes detailed Prometheus metrics for monitoring tool performance, resource usage, and error rates.
+
+#### Accessing Metrics
+
+By default, metrics are available at `http://localhost:9090/metrics` (customizable via `METRICS_PORT`).
+
+```bash
+# Fetch metrics in Prometheus format
+curl http://localhost:9090/metrics
+
+# Health check endpoint
+curl http://localhost:9090/health
+```
+
+#### Example Prometheus Queries
+
+```promql
+# Average tool execution time (last 5 minutes)
+rate(pulsar_tool_duration_seconds_sum[5m]) / rate(pulsar_tool_duration_seconds_count[5m])
+
+# Tool error rate
+rate(pulsar_tool_errors_total[5m])
+
+# Current heap memory usage in MB
+pulsar_heap_memory_used_bytes / 1024 / 1024
+
+# Active tool invocations
+pulsar_active_tool_invocations
+
+# Total successful invocations by tool
+sum by (tool_name) (pulsar_tool_invocations_total{status="success"})
+```
+
+#### Metrics in Docker
+
+When running pulsar in Docker, expose the metrics port:
+
+```bash
+docker run -p 9090:9090 ghcr.io/benelabs/pulsar:latest
+```
+
+#### Disabling Metrics
+
+If you want to reduce memory overhead or disable metrics export for privacy reasons, set:
+
+```env
+METRICS_ENABLED=false
+```
+
+The HTTP metrics server will not start, and no metrics will be collected.
+
+---
+
 ## Security Considerations
 
 - **Never commit `STELLAR_SECRET_KEY`** to version control. Add `.env` to `.gitignore`. Use a throwaway funded Testnet keypair during development.
@@ -1584,6 +1720,7 @@ npm run typecheck
 - [x] `soroban_math` — fixed-point, statistical, and financial math
 - [x] `compute_vesting_schedule` — token vesting / timelock schedule calculator
 - [x] `deploy_contract` — deploy Soroban contracts via built-in deployer or factory pattern
+- [x] Prometheus metrics export — monitor tool performance, errors, and resource usage
 - [x] `get_liquidity_pool` — fetch AMM pool reserves, shares, and fee settings
 - [x] `get_fee_stats` — retrieve network fee statistics and recommended fees
 - [x] `latency_based_rpc` — automatic routing to the fastest Soroban RPC endpoint

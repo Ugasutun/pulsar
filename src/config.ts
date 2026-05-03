@@ -22,6 +22,8 @@ const configSchema = z.object({
   stellarSecretKey: z.string().startsWith("S").length(56).optional(),
   stellarCliPath: z.string().default("stellar"),
   logLevel: z.enum(["error", "warn", "info", "debug"]).default("info"),
+  metricsEnabled: z.boolean().default(true),
+  metricsPort: z.number().int().min(1).max(65535).default(9090),
   restrictedAddresses: z.string().optional(),
   restrictedAddressesFile: z.string().optional(),
 });
@@ -36,6 +38,8 @@ const rawConfig = {
   logLevel: process.env.LOG_LEVEL || 'info',
   stellarCliPath: process.env.STELLAR_CLI_PATH || "stellar",
   logLevel: process.env.LOG_LEVEL || "info",
+  metricsEnabled: process.env.METRICS_ENABLED !== "false",
+  metricsPort: process.env.METRICS_PORT ? parseInt(process.env.METRICS_PORT, 10) : 9090,
   rpcHealthCheckIntervalMs: process.env.RPC_HEALTH_CHECK_INTERVAL_MS ? parseInt(process.env.RPC_HEALTH_CHECK_INTERVAL_MS, 10) : undefined,
   rpcLatencyThresholdMs: process.env.RPC_LATENCY_THRESHOLD_MS ? parseInt(process.env.RPC_LATENCY_THRESHOLD_MS, 10) : undefined,
   restrictedAddresses: process.env.RESTRICTED_ADDRESSES || undefined,
@@ -46,6 +50,8 @@ const rawConfig = {
 const parsed = configSchema.safeParse(rawConfig);
 
 if (!parsed.success) {
+  // eslint-disable-next-line no-console
+  console.error("❌ Invalid environment variables:", JSON.stringify(parsed.error.format(), null, 2));
   logger.fatal({ validationErrors: parsed.error.format() }, 'Invalid environment variables');
   process.exit(1);
 }
