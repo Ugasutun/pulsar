@@ -22,6 +22,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { getClaimableBalance } from './tools/get_claimable_balance.js';
 import { searchAssets } from './tools/search_assets.js';
 import { ammTool } from './tools/amm.js';
 import { getTokenTransferFee } from './tools/get_token_transfer_fee.js';
@@ -38,6 +39,7 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  GetClaimableBalanceInputSchema,
   SearchAssetsInputSchema,
   GetTokenTransferFeeInputSchema,
   GenerateContractClientInputSchema,
@@ -63,6 +65,8 @@ class PulsarServer {
 
   constructor() {
     this.server = new Server(
+      { name: 'pulsar', version: '1.0.0' },
+      { capabilities: { tools: {} } },
       {
         name: 'pulsar',
         version: '1.0.0',
@@ -75,7 +79,6 @@ class PulsarServer {
       { name: 'pulsar', version: '1.0.0' },
       { capabilities: { tools: {} } }
     );
-
     this.setupHandlers();
     this.handleErrors();
   }
@@ -103,6 +106,10 @@ class PulsarServer {
           inputSchema: {
             type: 'object',
             properties: {
+              account_id: { type: 'string', description: 'The Stellar public key (G...)' },
+              asset_code: { type: 'string', description: 'Optional: Filter by asset code (e.g. USDC)' },
+              asset_issuer: { type: 'string', description: 'Optional: Filter by asset issuer (G...)' },
+              network: { type: 'string', enum: ['mainnet', 'testnet', 'futurenet', 'custom'], description: 'Override the configured network for this call.' },
               asset_code: {
                 type: 'string',
                 description: 'Optional: Filter by asset code (e.g. USDC)',
@@ -135,6 +142,15 @@ class PulsarServer {
         },
         {
           name: 'submit_transaction',
+          description: '⚠️ IRREVERSIBLE. Always simulate first.\n\nSubmits a signed transaction envelope (XDR) to the Stellar network via Horizon. Optionally signs the transaction in-process using the configured STELLAR_SECRET_KEY (the key is never logged or passed as a CLI argument). Optionally waits up to 30 s for a SUCCESS or FAILED result from the Soroban RPC.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              xdr: { type: 'string', description: 'Base64-encoded XDR of the transaction envelope.' },
+              network: { type: 'string', enum: ['mainnet', 'testnet', 'futurenet', 'custom'], description: 'Override the configured network for this call.' },
+              sign: { type: 'boolean', default: false, description: 'Sign the transaction in-process before submitting. Requires STELLAR_SECRET_KEY to be configured.' },
+              wait_for_result: { type: 'boolean', default: false, description: 'Poll until SUCCESS or FAILED (max 30 s).' },
+              wait_timeout_ms: { type: 'number', default: 30000, description: 'Polling timeout in milliseconds (1000 – 120000).' },
           description: 'Submit a signed transaction.',
           inputSchema: {
             type: 'object',
@@ -184,6 +200,12 @@ class PulsarServer {
         },
         {
           name: 'fetch_contract_spec',
+          description: 'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              contract_id: { type: 'string', description: 'The Soroban contract address (C...)' },
+              network: { type: 'string', enum: ['mainnet', 'testnet', 'futurenet', 'custom'], description: 'Override the active network for this call.' },
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
@@ -237,6 +259,8 @@ class PulsarServer {
           inputSchema: {
             type: 'object',
             properties: {
+              xdr: { type: 'string', description: 'Base64-encoded XDR of the transaction envelope.' },
+              network: { type: 'string', enum: ['mainnet', 'testnet', 'futurenet', 'custom'], description: 'Override the configured network for this call.' },
               contract_id: {
                 type: 'string',
                 description: 'The Soroban contract address (C...)',
@@ -274,6 +298,13 @@ class PulsarServer {
           inputSchema: {
             type: 'object',
             properties: {
+              total_amount: { type: 'number', description: 'Total token amount to vest.' },
+              start_timestamp: { type: 'number', description: 'Unix timestamp when vesting begins.' },
+              cliff_seconds: { type: 'number', description: 'Seconds before any tokens unlock (cliff period).' },
+              vesting_duration_seconds: { type: 'number', description: 'Total vesting period in seconds.' },
+              release_frequency_seconds: { type: 'number', description: 'How often tokens unlock after cliff (e.g. 2592000 for monthly).' },
+              beneficiary_type: { type: 'string', enum: ['team', 'investor', 'advisor', 'other'], description: 'Category of beneficiary.' },
+              current_timestamp: { type: 'number', description: 'Optional override for current time as Unix timestamp.' },
               operation: {
                 type: 'string',
                 enum: [
@@ -348,17 +379,23 @@ class PulsarServer {
               release_frequency_seconds: { type: 'number' },
               beneficiary_type: { type: 'string' },
             },
-            required: [
-              'total_amount',
-              'start_timestamp',
-              'cliff_seconds',
-              'vesting_duration_seconds',
-              'release_frequency_seconds',
-              'beneficiary_type',
-            ],
+            required: ['total_amount', 'start_timestamp', 'cliff_seconds', 'vesting_duration_seconds', 'release_frequency_seconds', 'beneficiary_type'],
           },
         },
         {
+          name: 'deploy_contract',
+          description: "Builds a Stellar transaction for deploying a Soroban smart contract. Supports 'direct' mode (built-in deployer) or 'factory' mode (via a factory contract). Returns the unsigned transaction XDR and, for direct mode, the predicted deterministic contract address. Simulate before submitting.",
+          inputSchema: {
+            type: 'object',
+            properties: {
+              mode: { type: 'string', enum: ['direct', 'factory'], description: "Deployment mode: 'direct' (built-in deployer) or 'factory' (via factory contract)" },
+              source_account: { type: 'string', description: 'Stellar public key (G...) that will deploy the contract and pay fees.' },
+              wasm_hash: { type: 'string', description: 'SHA-256 hash of the uploaded WASM as 64 hex characters. Required for direct mode.' },
+              salt: { type: 'string', description: 'Optional 32-byte salt as 64 hex characters for deterministic address. Random if omitted.' },
+              factory_contract_id: { type: 'string', description: 'Soroban contract ID (C...) of the factory contract. Required for factory mode.' },
+              deploy_function: { type: 'string', description: "Factory deploy function name. Default: 'deploy'." },
+              deploy_args: { type: 'array', description: "Arguments for factory deploy function as typed SCVal objects." },
+              network: { type: 'string', enum: ['mainnet', 'testnet', 'futurenet', 'custom'], description: 'Override the configured network for this call.' },
           name: 'batch_events',
           description:
             'Batch, deduplicate, and group Soroban contract events from simulate or submit results. ' +
@@ -646,14 +683,30 @@ class PulsarServer {
             required: ['action', 'params'],
           },
         },
+        {
+          name: 'get_claimable_balance',
+          description: 'Query claimable balances on Stellar. Returns claimable balances for a specific account (by public key) or a single balance (by balance ID). Includes claimant details, predicates, amounts, and sponsor information.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              account_id: { type: 'string', description: 'The Stellar public key (G...) to fetch claimable balances for.' },
+              balance_id: { type: 'string', description: 'A specific claimable balance ID (72 hex chars).' },
+              network: { type: 'string', enum: ['mainnet', 'testnet', 'futurenet', 'custom'], description: 'Override the configured network for this call.' },
+            },
+            required: [],
+          },
+        },
       ],
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-
       try {
         logger.debug({ tool: name, arguments: args }, `Executing tool: ${name}`);
+        switch (name) {
+          case 'get_account_balance': {
+            const parsed = GetAccountBalanceInputSchema.safeParse(args);
+            if (!parsed.success) throw new PulsarValidationError(`Invalid input for get_account_balance`, parsed.error.format());
 
         // Guard: check all address fields against the restricted list before any network call
         const guardResult = checkToolInput(name, (args ?? {}) as Record<string, unknown>, addressRegistry);
@@ -672,15 +725,12 @@ class PulsarServer {
               );
             }
             const result = await getAccountBalance(parsed.data);
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify(result),
-                },
-              ],
-            };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
+          case 'fetch_contract_spec': {
+            const parsed = fetchContractSpecSchema.safeParse(args);
+            if (!parsed.success) throw new PulsarValidationError(`Invalid input for fetch_contract_spec`, parsed.error.format());
+            const result = await fetchContractSpec(parsed.data);
 
           case 'search_assets': {
             const parsed = SearchAssetsInputSchema.safeParse(args);
@@ -720,9 +770,9 @@ class PulsarServer {
             const result = await fetchContractSpec(parsed);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
-
           case 'submit_transaction': {
             const parsed = SubmitTransactionInputSchema.safeParse(args);
+            if (!parsed.success) throw new PulsarValidationError(`Invalid input for submit_transaction`, parsed.error.format());
             if (!parsed.success) {
               throw new PulsarValidationError(
                 `Invalid input for submit_transaction`,
@@ -730,13 +780,32 @@ class PulsarServer {
               );
             }
             const result = await submitTransaction(parsed.data);
-            return {
-              content: [{ type: 'text', text: JSON.stringify(result) }],
-            };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
-
           case 'simulate_transaction': {
             const parsed = SimulateTransactionInputSchema.safeParse(args);
+            if (!parsed.success) throw new PulsarValidationError(`Invalid input for simulate_transaction`, parsed.error.format());
+            const result = await simulateTransaction(parsed.data);
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+          case 'compute_vesting_schedule': {
+            const parsed = ComputeVestingScheduleInputSchema.safeParse(args);
+            if (!parsed.success) throw new PulsarValidationError(`Invalid input for compute_vesting_schedule`, parsed.error.format());
+            const result = await computeVestingSchedule(parsed.data);
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+          case 'deploy_contract': {
+            const parsed = DeployContractInputSchema.safeParse(args);
+            if (!parsed.success) throw new PulsarValidationError(`Invalid input for deploy_contract`, parsed.error.format());
+            const result = await deployContract(parsed.data);
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+          case 'get_claimable_balance': {
+            const parsed = GetClaimableBalanceInputSchema.safeParse(args);
+            if (!parsed.success) throw new PulsarValidationError(`Invalid input for get_claimable_balance`, parsed.error.format());
+            const result = await getClaimableBalance(parsed.data);
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
             if (!parsed.success) {
               throw new PulsarValidationError(
                 `Invalid input for simulate_transaction`,
@@ -968,49 +1037,26 @@ class PulsarServer {
 
   private handleToolError(error: unknown, toolName: string) {
     let pulsarError: PulsarError;
-
     if (error instanceof PulsarError) {
       pulsarError = error;
     } else if (error instanceof McpError) {
-      // Pass through MCP errors directly if they are already well-formed
       throw error;
     } else {
+      pulsarError = new PulsarNetworkError(error instanceof Error ? error.message : String(error), { originalError: error });
       // Convert unknown errors to PulsarNetworkError as per requirements
       pulsarError = new PulsarNetworkError(error instanceof Error ? error.message : String(error), {
         originalError: error,
       });
     }
-
-    logger.error(
-      {
-        tool: toolName,
-        errorCode: pulsarError.code,
-        error: pulsarError.message,
-        details: pulsarError.details,
-      },
-      `Error executing tool ${toolName}`
-    );
-
+    logger.error({ tool: toolName, errorCode: pulsarError.code, error: pulsarError.message, details: pulsarError.details }, `Error executing tool ${toolName}`);
     return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            status: 'error',
-            error_code: pulsarError.code,
-            message: pulsarError.message,
-            details: pulsarError.details,
-          }),
-        },
-      ],
+      content: [{ type: 'text', text: JSON.stringify({ status: 'error', error_code: pulsarError.code, message: pulsarError.message, details: pulsarError.details }) }],
       isError: true,
     };
   }
 
   private handleErrors() {
-    this.server.onerror = (error) => {
-      logger.error({ error }, '[MCP Error]');
-    };
+    this.server.onerror = (error) => { logger.error({ error }, '[MCP Error]'); };
   }
 
   async run() {
@@ -1025,6 +1071,7 @@ const pulsar = new PulsarServer();
 pulsar.run().catch((error) => {
   logger.fatal({ error }, '❌ Fatal error in pulsar server');
   process.exit(1);
+});
 });
     logger.info(`pulsar MCP server running on ${config.stellarNetwork}`);
   }
