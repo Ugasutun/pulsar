@@ -6,6 +6,7 @@ export enum PulsarErrorCode {
   CLI_ERROR = 'CLI_ERROR',
   NOT_FOUND_ERROR = 'NOT_FOUND_ERROR',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
+  RATE_LIMIT_ERROR = 'RATE_LIMIT_ERROR',
   MATH_ERROR = 'MATH_ERROR',
   UNAUTHORIZED_ERROR = 'UNAUTHORIZED_ERROR',
   FORBIDDEN_ERROR = 'FORBIDDEN_ERROR',
@@ -72,6 +73,10 @@ export class PulsarNotFoundError extends PulsarError {
   }
 }
 
+export class PulsarRateLimitError extends PulsarError {
+  constructor(message: string, details?: any) {
+    super(PulsarErrorCode.RATE_LIMIT_ERROR, message, details);
+    this.name = 'PulsarRateLimitError';
 export class PulsarMathError extends PulsarError {
   constructor(message: string, details?: any) {
     super(PulsarErrorCode.MATH_ERROR, message, details);

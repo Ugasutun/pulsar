@@ -9,6 +9,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { config } from './config.js';
+
+import { config } from './config.js';
 import { fetchContractSpec, fetchContractSpecSchema } from './tools/fetch_contract_spec.js';
 import { observeBridgeEvents } from './tools/observe_bridge_events.js';
 
@@ -145,6 +147,13 @@ import {
 } from './schemas/amm.js';
 
 import logger from './logger.js';
+import {
+  PulsarError,
+  PulsarNetworkError,
+  PulsarValidationError,
+  PulsarRateLimitError,
+} from './errors.js';
+import { rateLimiter } from './services/rate-limiter.js';
 import { PulsarError, PulsarNetworkError, PulsarValidationError } from './errors.js';
 import { createStdioTransport } from './transport/stdio.js';
 import { applyFieldProjection } from './schemas/index.js';
@@ -455,6 +464,9 @@ class PulsarServer {
           },
         },
         {
+          name: 'compute_vesting_schedule',
+          description:
+            'Calculate a token vesting / timelock release schedule for team, investors, or advisors. Returns released and unreleased amounts plus a period-by-period breakdown.',
           name: 'observe_bridge_events',
           description:
             'Observe bridge-related Soroban contract events for a given contract. Supports contract filtering, optional event type, paging cursor, and ledger window parameters.',
@@ -544,10 +556,15 @@ class PulsarServer {
               network: { type: 'string', enum: ['mainnet', 'testnet', 'futurenet', 'custom'], description: 'Override the configured network for this call.' },
               contract_id: {
                 type: 'string',
+                enum: ['direct', 'factory'],
+                description:
+                  "Deployment mode: 'direct' (built-in deployer) or 'factory' (via factory contract)",
                 description: 'The Soroban contract address (C...)',
               },
               storage_type: {
                 type: 'string',
+                description:
+                  'Stellar public key (G...) that will deploy the contract and pay fees.',
                 enum: ['instance', 'persistent', 'temporary'],
                 description: 'Which storage durability to read.',
               },
@@ -558,6 +575,8 @@ class PulsarServer {
               },
               network: {
                 type: 'string',
+                description:
+                  'SHA-256 hash of the uploaded WASM as 64 hex characters. Required for direct mode.',
                 enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
                 description: 'Override the configured network for this call.',
               },
@@ -574,6 +593,8 @@ class PulsarServer {
         {
               format: {
                 type: 'string',
+                description:
+                  'Optional 32-byte salt as 64 hex characters for deterministic address. Random if omitted.',
                 enum: ['markdown', 'text'],
                 default: 'markdown',
                 description: 'Output format: markdown (default) or plain text.',
@@ -609,6 +630,8 @@ class PulsarServer {
               current_timestamp: { type: 'number', description: 'Optional override for current time as Unix timestamp.' },
               operation: {
                 type: 'string',
+                description:
+                  'Soroban contract ID (C...) of the factory contract. Required for factory mode.',
                 enum: [
                   'fixed_add',
                   'fixed_sub',
@@ -668,6 +691,8 @@ class PulsarServer {
               },
               fields: {
                 type: 'array',
+                description:
+                  "Arguments for factory deploy function as typed SCVal objects. Each item: { type?: 'symbol'|'string'|'u32'|'i32'|'u64'|'i64'|'u128'|'i128'|'bool'|'address'|'bytes'|'void', value: any }",
                 items: { type: 'string' },
                 description:
                   'Subset of top-level response fields to return. Omit to receive the full response.',
@@ -1978,6 +2003,19 @@ class PulsarServer {
       const { name, arguments: args } = request.params;
 
       try {
+        // Rate Limiting Middleware
+        const clientId = (args as any)?.client_id || (request as any).meta?.client_id || 'default';
+        if (!rateLimiter.isAllowed(clientId)) {
+          const stats = rateLimiter.getStats(clientId);
+          throw new PulsarRateLimitError(`Rate limit exceeded for client: ${clientId}.`, {
+            limit: config.rateLimitMax,
+            window_ms: config.rateLimitWindowMs,
+            tokens_remaining: stats.remaining,
+            retry_after_ms: Math.ceil(config.rateLimitWindowMs / config.rateLimitMax),
+          });
+        }
+
+        logger.debug({ tool: name, arguments: args, clientId }, `Executing tool: ${name}`);
         logger.debug({ tool: name, arguments: args }, `Executing tool: ${name}`);
 
         switch (name) {
