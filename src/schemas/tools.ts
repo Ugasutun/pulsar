@@ -282,6 +282,16 @@ export const DeployContractInputSchema = z.object({
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
 /**
+ * Schema for get_protocol_version tool
+ *
+ * Inputs:
+ * - network: Optional network override
+ */
+export const GetProtocolVersionInputSchema = z.object({
+  network: NetworkSchema.optional(),
+});
+
+export type GetProtocolVersionInput = z.infer<typeof GetProtocolVersionInputSchema>;
  * Schema for export_data tool
  *
  * Allows exporting tool results to CSV or JSON format files

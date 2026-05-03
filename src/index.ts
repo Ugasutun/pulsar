@@ -22,6 +22,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { getProtocolVersion } from './tools/get_protocol_version.js';
 import { exportData } from './tools/export_data.js';
 import { checkNetworkStatusTool } from './tools/check_network_status.js';
 import { buildTransaction } from './tools/build_transaction.js';
@@ -42,6 +43,7 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  GetProtocolVersionInputSchema,
   ExportDataInputSchema,
   CheckNetworkStatusInputSchema,
   BuildTransactionInputSchema,
@@ -858,6 +860,20 @@ class PulsarServer {
             required: ['data', 'format'],
           },
         },
+        {
+          name: 'get_protocol_version',
+          description: 'Get the current Stellar protocol version and network information. Returns protocol version, Horizon version, supported features, and upgrade status.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              network: {
+                type: 'string',
+                enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
+                description: 'Override the configured network for this call.',
+              },
+            },
+          },
+        },
       ],
     }));
 
@@ -1201,6 +1217,17 @@ class PulsarServer {
               default:
                 throw new PulsarValidationError(`Invalid AMM action: ${action}`);
             }
+          }
+
+          case 'get_protocol_version': {
+            const parsed = GetProtocolVersionInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(`Invalid input for get_protocol_version`, parsed.error.format());
+            }
+            const result = await getProtocolVersion(parsed.data);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
           }
 
           default:
