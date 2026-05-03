@@ -1,6 +1,7 @@
 import TransportNodeHid from "@ledgerhq/hw-transport-node-hid";
 import StrApp from "@ledgerhq/hw-app-str";
 import { Transaction, FeeBumpTransaction, Asset } from "@stellar/stellar-sdk";
+import { Transaction, FeeBumpTransaction } from "@stellar/stellar-sdk";
 import { StellarSigner, SignerError } from "./signer.js";
 import logger from "../logger.js";
 
@@ -45,6 +46,14 @@ export class LedgerSigner implements StellarSigner {
     } catch (error) {
       throw new SignerError(
         `Failed to connect to Ledger device: ${(error as Error).message}`,
+        logger.warn("Ledger device disconnected");
+        this.transport = null;
+        this.strApp = null;
+      });
+    } catch (error) {
+      logger.error({ error }, "Failed to initialize Ledger transport");
+      throw new SignerError(
+        "Could not connect to Ledger device. Ensure it is plugged in and the Stellar app is open.",
         "LEDGER_CONNECT_ERROR"
       );
     }
@@ -71,6 +80,7 @@ export class LedgerSigner implements StellarSigner {
 
   /**
    * Signs a Stellar transaction on the Ledger device.
+   * Signs a transaction using the Ledger device.
    */
   async signTransaction(tx: Transaction | FeeBumpTransaction): Promise<void> {
     await this.initialize();
@@ -101,6 +111,23 @@ export class LedgerSigner implements StellarSigner {
       this.transport = null;
       this.strApp = null;
       this.publicKey = null;
+    } finally {
+      await this.cleanup();
+    }
+  }
+
+  /**
+   * Closes the transport.
+   */
+  private async cleanup(): Promise<void> {
+    if (this.transport) {
+      try {
+        await this.transport.close();
+      } catch (error) {
+        logger.debug({ error }, "Error closing Ledger transport");
+      }
+      this.transport = null;
+      this.strApp = null;
     }
   }
 }
