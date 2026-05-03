@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -108,6 +110,7 @@ import {
 import { signWithLedger } from './tools/sign_with_ledger.js';
 import { inspectXdr } from './tools/inspect_xdr.js';
 } from './schemas/tools.js';
+import logger, { requestContext } from './logger.js';
 import { signWithLedger } from './tools/sign_with_ledger.js';
   CreateTrustlineInputSchema,
   ExportAiSchemasInputSchema,
@@ -2605,6 +2608,99 @@ class PulsarServer {
             const action = args?.action;
             const params = args?.params;
 
+        // Extract or generate a unique request_id for tracing
+        const requestId = (argsObj?.request_id as string) || randomUUID();
+
+        return requestContext.run({ requestId }, async () => {
+          logger.debug({ tool: name, requestId }, 'Request context established');
+
+          switch (name) {
+            case 'get_account_balance': {
+              const parsed = GetAccountBalanceInputSchema.safeParse(args);
+              if (!parsed.success) {
+                throw new PulsarValidationError(
+                  `Invalid input for get_account_balance`,
+                  parsed.error.format()
+                );
+              }
+              const result = await getAccountBalance(parsed.data);
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify(result),
+                  },
+                ],
+              };
+            }
+
+            case 'fetch_contract_spec': {
+              const parsed = fetchContractSpecSchema.safeParse(args);
+              if (!parsed.success) {
+                throw new PulsarValidationError(
+                  `Invalid input for fetch_contract_spec`,
+                  parsed.error.format()
+                );
+              }
+              const result = await fetchContractSpec(parsed.data);
+              return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+            }
+
+            case 'submit_transaction': {
+              const parsed = SubmitTransactionInputSchema.safeParse(args);
+              if (!parsed.success) {
+                throw new PulsarValidationError(
+                  `Invalid input for submit_transaction`,
+                  parsed.error.format()
+                );
+              }
+              const result = await submitTransaction(parsed.data);
+              return {
+                content: [{ type: 'text', text: JSON.stringify(result) }],
+              };
+            }
+
+            case 'simulate_transaction': {
+              const parsed = SimulateTransactionInputSchema.safeParse(args);
+              if (!parsed.success) {
+                throw new PulsarValidationError(
+                  `Invalid input for simulate_transaction`,
+                  parsed.error.format()
+                );
+              }
+              const result = await simulateTransaction(parsed.data);
+              return {
+                content: [{ type: 'text', text: JSON.stringify(result) }],
+              };
+            }
+
+            case 'compute_vesting_schedule': {
+              const parsed = ComputeVestingScheduleInputSchema.safeParse(args);
+              if (!parsed.success) {
+                throw new PulsarValidationError(
+                  `Invalid input for compute_vesting_schedule`,
+                  parsed.error.format()
+                );
+              }
+              const result = await computeVestingSchedule(parsed.data);
+              return {
+                content: [{ type: 'text', text: JSON.stringify(result) }],
+              };
+            }
+
+            case 'deploy_contract': {
+              const parsed = DeployContractInputSchema.safeParse(args);
+              if (!parsed.success) {
+                throw new PulsarValidationError(
+                  `Invalid input for deploy_contract`,
+                  parsed.error.format()
+                );
+              }
+              const result = await deployContract(parsed.data);
+              return {
+                content: [{ type: 'text', text: JSON.stringify(result) }],
+              };
+            }
             if (!action || !params) {
               throw new PulsarValidationError('AMM tool requires action and params');
             }
@@ -2933,20 +3029,24 @@ class PulsarServer {
             };
           }
 
-          case 'create_claimable_balance': {
-            const parsed = CreateClaimableBalanceInputSchema.safeParse(args);
-            if (!parsed.success) {
-              throw new PulsarValidationError(
-                `Invalid input for create_claimable_balance`,
-                parsed.error.format()
-              );
+            case 'create_claimable_balance': {
+              const parsed = CreateClaimableBalanceInputSchema.safeParse(args);
+              if (!parsed.success) {
+                throw new PulsarValidationError(
+                  `Invalid input for create_claimable_balance`,
+                  parsed.error.format()
+                );
+              }
+              const result = await createClaimableBalance(parsed.data);
+              return {
+                content: [{ type: 'text', text: JSON.stringify(result) }],
+              };
             }
-            const result = await createClaimableBalance(parsed.data);
-            return {
-              content: [{ type: 'text', text: JSON.stringify(result) }],
-            };
-          }
 
+            default:
+              throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`);
+          }
+        }); // end requestContext.run()
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`);
         }
