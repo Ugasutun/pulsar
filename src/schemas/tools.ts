@@ -239,9 +239,7 @@ export const CalculateDutchAuctionPriceInputSchema = z.object({
   current_timestamp: z.number().int().positive().optional(),
 });
 
-export type CalculateDutchAuctionPriceInput = z.infer<
-  typeof CalculateDutchAuctionPriceInputSchema
->;
+export type CalculateDutchAuctionPriceInput = z.infer<typeof CalculateDutchAuctionPriceInputSchema>;
 
 /**
  * Schema for calculate_english_auction_state tool
@@ -258,7 +256,7 @@ export const CalculateEnglishAuctionStateInputSchema = z.object({
   current_highest_bid: z.number().nonnegative(),
   reserve_price: z.number().positive(),
   bid_increment: z.number().positive(),
-  bid_increment_type: z.enum(["absolute", "percentage"]).default("absolute"),
+  bid_increment_type: z.enum(['absolute', 'percentage']).default('absolute'),
   end_timestamp: z.number().int().positive(),
   current_timestamp: z.number().int().positive().optional(),
 });
@@ -392,6 +390,22 @@ export const DeployContractInputSchema = z.object({
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
 /**
+ * Schema for safe_math_compute tool
+ *
+ * Inputs:
+ * - a: First operand (string for BigInt support)
+ * - b: Second operand (string for BigInt support)
+ * - operation: 'add' | 'sub' | 'mul' | 'div'
+ * - bounds: 'u64' | 'i128' | 'u128' | 'none' (default: 'none')
+ */
+export const SafeMathComputeInputSchema = z.object({
+  a: z.string().describe('First operand as a string (to support large integers)'),
+  b: z.string().describe('Second operand as a string (to support large integers)'),
+  operation: z.enum(['add', 'sub', 'mul', 'div']),
+  bounds: z.enum(['u32', 'i32', 'u64', 'i64', 'u128', 'i128', 'none']).default('none'),
+});
+
+export type SafeMathComputeInput = z.infer<typeof SafeMathComputeInputSchema>;
  * Schema for manage_dao_treasury tool
  *
  * Manages DAO treasury operations including deposits, allocations,

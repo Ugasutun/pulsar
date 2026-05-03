@@ -28,6 +28,11 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import {
+  calculateDutchAuctionPrice,
+  calculateEnglishAuctionState,
+} from './tools/auction_compute.js';
+import { safeMathCompute } from './tools/safe_math_tool.js';
 import { calculateDutchAuctionPrice, calculateEnglishAuctionState } from './tools/auction_compute.js';
 import { manageDaoTreasury } from './tools/manage_dao_treasury.js';
 import { computeInterestRates, calculateBorrowingCapacity } from './tools/lending_compute.js';
@@ -65,6 +70,7 @@ import {
   DeployContractInputSchema,
   CalculateDutchAuctionPriceInputSchema,
   CalculateEnglishAuctionStateInputSchema,
+  SafeMathComputeInputSchema,
 } from './schemas/tools.js';
   ManageDaoTreasuryInputSchema,
   ComputeInterestRatesInputSchema,
@@ -283,6 +289,8 @@ class PulsarServer {
         },
         {
           name: 'fetch_contract_spec',
+          description:
+            'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
@@ -706,6 +714,81 @@ class PulsarServer {
                 description: 'Override the configured network for this call.',
               },
             },
+            required: ['mode', 'source_account'],
+          },
+        },
+        {
+          name: 'calculate_dutch_auction_price',
+          description:
+            'Calculate the current price of an asset in a Dutch auction (linear price decay). Useful for NFT drops or fair price discovery.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              start_price: { type: 'number', description: 'Initial auction price.' },
+              reserve_price: { type: 'number', description: 'Minimum/floor price.' },
+              start_timestamp: { type: 'number', description: 'Unix timestamp when decay begins.' },
+              end_timestamp: {
+                type: 'number',
+                description: 'Unix timestamp when price reaches reserve.',
+              },
+              current_timestamp: {
+                type: 'number',
+                description: 'Optional override for current time.',
+              },
+            },
+            required: ['start_price', 'reserve_price', 'start_timestamp', 'end_timestamp'],
+          },
+        },
+        {
+          name: 'calculate_english_auction_state',
+          description: 'Calculate the next bid requirements and state for an English auction.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              current_highest_bid: {
+                type: 'number',
+                description: 'Current top bid (0 if no bids).',
+              },
+              reserve_price: { type: 'number', description: 'Minimum bid to win/start.' },
+              bid_increment: {
+                type: 'number',
+                description: 'Required increase over the current bid.',
+              },
+              bid_increment_type: {
+                type: 'string',
+                enum: ['absolute', 'percentage'],
+                default: 'absolute',
+              },
+              end_timestamp: { type: 'number', description: 'Unix timestamp when auction ends.' },
+              current_timestamp: {
+                type: 'number',
+                description: 'Optional override for current time.',
+              },
+            },
+          },
+        },
+        {
+          name: 'safe_math_compute',
+          description:
+            'Perform safe integer arithmetic with overflow/underflow protection and Soroban-compatible bounds checking (u64, i128, etc.).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              a: { type: 'string', description: 'First operand (as string).' },
+              b: { type: 'string', description: 'Second operand (as string).' },
+              operation: {
+                type: 'string',
+                enum: ['add', 'sub', 'mul', 'div'],
+                description: 'Arithmetic operation.',
+              },
+              bounds: {
+                type: 'string',
+                enum: ['u32', 'i32', 'u64', 'i64', 'u128', 'i128', 'none'],
+                default: 'none',
+                description: 'Target integer bounds.',
+              },
+            },
+            required: ['a', 'b', 'operation'],
       required: ['mode', 'source_account'],
     },
   },
@@ -1589,6 +1672,7 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
+            const result = await getAccountBalance(parsed.data);
             result = await getAccountBalance(parsed.data);
             break;
             const result = await trackToolExecution('get_account_balance', () => getAccountBalance(parsed.data));
@@ -1634,6 +1718,7 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
+            const result = await fetchContractSpec(parsed.data);
             result = await fetchContractSpec(parsed.data);
             break;
             const result = await fetchContractSpec(parsed.data);
@@ -2094,7 +2179,10 @@ class PulsarServer {
           case 'calculate_dutch_auction_price': {
             const parsed = CalculateDutchAuctionPriceInputSchema.safeParse(args);
             if (!parsed.success) {
-              throw new PulsarValidationError(`Invalid input for calculate_dutch_auction_price`, parsed.error.format());
+              throw new PulsarValidationError(
+                `Invalid input for calculate_dutch_auction_price`,
+                parsed.error.format()
+              );
             }
             const result = await calculateDutchAuctionPrice(parsed.data);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -2103,7 +2191,10 @@ class PulsarServer {
           case 'calculate_english_auction_state': {
             const parsed = CalculateEnglishAuctionStateInputSchema.safeParse(args);
             if (!parsed.success) {
-              throw new PulsarValidationError(`Invalid input for calculate_english_auction_state`, parsed.error.format());
+              throw new PulsarValidationError(
+                `Invalid input for calculate_english_auction_state`,
+                parsed.error.format()
+              );
             }
             const result = await calculateEnglishAuctionState(parsed.data);
           case 'compute_interest_rates': {
@@ -2124,6 +2215,17 @@ class PulsarServer {
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
 
+          case 'safe_math_compute': {
+            const parsed = SafeMathComputeInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for safe_math_compute`,
+                parsed.error.format()
+              );
+            }
+            const result = await safeMathCompute(parsed.data);
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
 
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`);

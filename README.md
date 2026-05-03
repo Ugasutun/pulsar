@@ -42,6 +42,9 @@
   - [soroban_math](#soroban_math)
   - [compute_vesting_schedule](#compute_vesting_schedule)
   - [deploy_contract](#deploy_contract)
+  - [calculate_dutch_auction_price](#calculate_dutch_auction_price)
+  - [calculate_english_auction_state](#calculate_english_auction_state)
+  - [safe_math_compute](#safe_math_compute)
   - [track_ledger_consensus_time](#track_ledger_consensus_time)
   - [get_network_params](#get_network_params)
   - [optimize_contract_bytecode](#optimize_contract_bytecode)
@@ -124,6 +127,8 @@ There is currently **no community-driven MCP server** for Stellar, which means:
 | **Contract Deployment** | Deploy Soroban smart contracts via built-in deployer or factory contracts |
 | **Protocol Version Info** | Track network upgrades and feature availability across different networks |
 | **Vesting Schedule Computation** | Calculate token vesting / timelock release schedules for team, investors, and advisors |
+| **Auction Pricing** | Calculate current prices and bid requirements for Dutch and English auctions |
+| **Safe Math Utilities** | Perform overflow/underflow protected arithmetic for BigInt and Soroban types |
 | **Ledger Consensus Tracking** | Sample recent ledgers and report average, min, max, and std-dev of inter-ledger close times |
 | **Automated Market Maker (AMM)** | Interact with constant-product (x*y=k) AMM pools: swap tokens, add/remove liquidity, get quotes |
 | **Fee-on-Transfer Detection** | Simulate transfers to detect hidden fees or explicit Fee-on-Transfer logic |
@@ -1204,6 +1209,11 @@ Builds a Stellar transaction for deploying a Soroban smart contract. Supports tw
 
 ---
 
+---
+
+### `calculate_dutch_auction_price`
+
+Calculate the current price of an asset in a Dutch auction with linear decay.
 ### `track_ledger_consensus_time`
 
 Samples recent ledgers from Horizon and reports the average, minimum, maximum, and standard deviation of inter-ledger close times. Stellar targets approximately 5 seconds per ledger; deviations indicate network congestion or validator slowdowns.
@@ -1212,6 +1222,17 @@ Samples recent ledgers from Horizon and reports the average, minimum, maximum, a
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
+| `start_price` | `number` | Yes | Initial price of the asset |
+| `reserve_price` | `number` | Yes | Minimum price (bottom of the curve) |
+| `start_timestamp` | `number` | Yes | Unix timestamp when price begins to decay |
+| `end_timestamp` | `number` | Yes | Unix timestamp when price reaches reserve |
+| `current_timestamp` | `number` | No | Optional override for current time |
+
+---
+
+### `calculate_english_auction_state`
+
+Calculate the next bid requirements and state for an English auction.
 | `sample_size` | `number` | No | Number of recent ledgers to sample (2–100). Default: `10` |
 | `network` | `string` | No | Override the network for this call (`mainnet`, `testnet`, `futurenet`, `custom`) |
 ### `get_network_params`
@@ -1236,6 +1257,26 @@ Retrieves the current Stellar protocol version and network information from Hori
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
+| `current_highest_bid` | `number` | Yes | The current bid to beat (0 if none) |
+| `reserve_price` | `number` | Yes | Minimum bid required to start or win |
+| `bid_increment` | `number` | Yes | Minimum amount or percentage to add |
+| `bid_increment_type` | `string` | No | `absolute` or `percentage` (default: `absolute`) |
+| `end_timestamp` | `number` | Yes | Unix timestamp when the auction ends |
+
+---
+
+### `safe_math_compute`
+
+Perform safe integer arithmetic with overflow/underflow protection and Soroban-compatible bounds checking.
+
+**Input:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `a` | `string` | Yes | First operand (as string to support large integers) |
+| `b` | `string` | Yes | Second operand (as string) |
+| `operation` | `string` | Yes | `add`, `sub`, `mul`, `div` |
+| `bounds` | `string` | No | `u32`, `i32`, `u64`, `i64`, `u128`, `i128`, `none` (default: `none`) |
 | `wasm_path` | `string` | Yes | Path to the WASM file to analyze |
 | `max_size_kb` | `number` | No | Maximum allowed size in KB (default: `256`) |
 | `strict_mode` | `boolean` | No | If `true`, returns an error when size exceeds `max_size_kb` |
@@ -1524,6 +1565,13 @@ Get a quote for a potential swap, including expected output, price impact, and e
 
 ```jsonc
 {
+  "result": "1000000000000000000",
+  "operation": "add",
+  "bounds": "u64",
+  "formatted": "Result of 500000000000000000 add 500000000000000000 is 1000000000000000000 (within u64 bounds)"
+}
+```
+
   "status": "success",
   "offer_asset": {
     "code": "XLM",
