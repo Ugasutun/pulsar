@@ -28,6 +28,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { getNetworkParams } from './tools/get_network_params.js';
 import { getContractStorage } from "./tools/get_contract_storage.js";
 import { getLiquidityPool, GetLiquidityPoolInputSchema } from './tools/get_liquidity_pool.js';
 import { getFeeStats, GetFeeStatsInputSchema } from './tools/get_fee_stats.js';
@@ -55,6 +56,7 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  GetNetworkParamsInputSchema,
   ToolErrorOutputSchema,
   ToolNameSchema,
   TOOL_OUTPUT_SCHEMAS,
@@ -911,6 +913,9 @@ class PulsarServer {
           },
         },
         {
+          name: 'compute_vesting_schedule',
+          description:
+            'Calculate a token vesting / timelock release schedule for team, investors, or advisors. Returns released and unreleased amounts plus a period-by-period breakdown.',
           name: 'simulate_transactions_sequence',
           description:
             'Simulates a sequence of transactions on the Soroban RPC sequentially and returns an array of results, footprints, fees, and events.',
@@ -1044,6 +1049,22 @@ class PulsarServer {
               },
             },
             required: ['wasm_path'],
+          },
+        },
+        {
+          name: 'get_network_params',
+          description:
+            'Fetch current Soroban network parameters including resource weights (CPU, memory, ledger operations), fee thresholds and transaction limits, and inflation/base network parameters. Use this to understand resource pricing and network constraints.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              network: {
+                type: 'string',
+                enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
+                description: 'Override the configured network for this call.',
+              },
+            },
+            required: [],
           },
         },
       ],
@@ -1481,6 +1502,15 @@ class PulsarServer {
             };
           }
 
+          case 'get_network_params': {
+            const parsed = GetNetworkParamsInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for get_network_params`,
+                parsed.error.format()
+              );
+            }
+            const result = await getNetworkParams(parsed.data);
           case 'get_fee_stats': {
             const parsed = GetFeeStatsInputSchema.safeParse(args);
             if (!parsed.success) {
@@ -1491,6 +1521,9 @@ class PulsarServer {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };
           }
+
+          default:
+            throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`);
         }
       } catch (error) {
         logger.error(error);

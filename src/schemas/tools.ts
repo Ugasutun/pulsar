@@ -346,6 +346,21 @@ export const DeployContractInputSchema = z.object({
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
 /**
+ * Schema for get_network_params tool
+ *
+ * Fetches current Soroban network parameters including:
+ * - Resource weights (CPU, memory, ledger operations)
+ * - Fee thresholds and transaction limits
+ * - Inflation and base network parameters
+ *
+ * Inputs:
+ * - network: Optional network override (mainnet | testnet | futurenet | custom)
+ */
+export const GetNetworkParamsInputSchema = z.object({
+  network: NetworkSchema.optional().describe('Override the active network for this call'),
+});
+
+export type GetNetworkParamsInput = z.infer<typeof GetNetworkParamsInputSchema>;
  * Schema for simulate_transactions_sequence tool
  *
  * Inputs:
