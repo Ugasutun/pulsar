@@ -13,6 +13,7 @@ import { SIMULATE_TRANSACTION_STATUSES, TOOL_NAMES, type ToolName } from '../con
 import {
   StellarPublicKeySchema,
   ContractIdSchema,
+  AddressSchema,
   XdrBase64Schema,
   NetworkSchema,
   FieldsSchema,
@@ -474,6 +475,20 @@ export type GetAccountHistoryInput = z.infer<typeof GetAccountHistoryInputSchema
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
 /**
+ * Schema for estimate_token_fees tool
+ */
+export const EstimateTokenFeesInputSchema = z.object({
+  contract_id: ContractIdSchema,
+  amount: z.string().describe("Amount to mint or burn (as a string representing i128)"),
+  address: AddressSchema.describe("The address to mint to or burn from"),
+  op: z.enum(["mint", "burn"]).describe("The operation to estimate: mint or burn"),
+  source_account: StellarPublicKeySchema.describe("The account invoking the operation (must have appropriate permissions)"),
+  network: NetworkSchema.optional(),
+});
+
+export type EstimateTokenFeesInput = z.infer<
+  typeof EstimateTokenFeesInputSchema
+>;
  * Schema for get_orderbook tool
  *
  * Retrieves and analyzes the Stellar DEX orderbook for a trading pair.

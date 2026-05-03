@@ -47,6 +47,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { estimateTokenFees } from './tools/estimate_token_fees.js';
 import { getOrderbook } from './tools/get_orderbook.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { getPriceFeed } from './tools/get_price_feed.js';
@@ -91,6 +92,7 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  EstimateTokenFeesInputSchema,
   GetOrderbookInputSchema,
   GetPriceFeedInputSchema,
   CalculateDutchAuctionPriceInputSchema,
@@ -740,6 +742,31 @@ class PulsarServer {
           },
         },
         {
+          name: 'estimate_token_fees',
+          description: 'Estimate the Soroban resource costs (CPU, memory, fees) for minting or burning tokens on a Stellar Asset Contract (SAC).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              contract_id: {
+                type: 'string',
+                description: 'The SAC contract address (C...)',
+              },
+              amount: {
+                type: 'string',
+                description: 'Amount to mint or burn (i128 string)',
+              },
+              address: {
+                type: 'string',
+                description: 'The address receiving (mint) or losing (burn) tokens',
+              },
+              op: {
+                type: 'string',
+                enum: ['mint', 'burn'],
+                description: 'Operation: mint or burn',
+              },
+              source_account: {
+                type: 'string',
+                description: 'The account invoking the operation',
           name: 'get_orderbook',
           description:
             'Retrieve and analyze the Stellar DEX orderbook for a trading pair. Returns raw bids/asks plus derived analytics including spread, mid price, liquidity depth, and orderbook imbalance. Useful for market making, arbitrage detection, and liquidity analysis.',
@@ -1340,6 +1367,7 @@ class PulsarServer {
                 description: 'Override the configured network for this call.',
               },
             },
+            required: ['contract_id', 'amount', 'address', 'op', 'source_account'],
             required: ['source_account', 'operations'],
           },
         },
@@ -2531,6 +2559,17 @@ class PulsarServer {
               throw new PulsarValidationError(`Invalid input for get_orderbook`, parsed.error.format());
             }
             const result = await getOrderbook(parsed.data);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'estimate_token_fees': {
+            const parsed = EstimateTokenFeesInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(`Invalid input for estimate_token_fees`, parsed.error.format());
+            }
+            const result = await estimateTokenFees(parsed.data);
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };

@@ -1232,6 +1232,46 @@ Calculate a token vesting / timelock release schedule for team members, investor
 
 ---
 
+### `estimate_token_fees`
+
+Estimate the Soroban resource costs (CPU, memory, fees) for minting or burning tokens on a Stellar Asset Contract (SAC). This builds the transaction for you and runs a simulation.
+
+**Input:**
+
+| Parameter        | Type     | Required | Description                                            |
+| ---------------- | -------- | -------- | ------------------------------------------------------ |
+| `contract_id`    | `string` | Yes      | The SAC contract address (`C...`)                      |
+| `amount`         | `string` | Yes      | Amount to mint or burn (as a string representing i128) |
+| `address`        | `string` | Yes      | The address receiving (mint) or losing (burn) tokens   |
+| `op`             | `string` | Yes      | Operation to estimate: `mint` or `burn`                |
+| `source_account` | `string` | Yes      | The account invoking the operation                     |
+| `network`        | `string` | No       | Override network: `mainnet`, `testnet`, `futurenet`    |
+
+**Output:**
+
+Returns a simulation result object (see `simulate_transaction`).
+
+```jsonc
+{
+  "status": "success",
+  "return_value": { "type": "void" },
+  "cost": {
+    "cpu_instructions": 725400,
+    "memory_bytes": 112000
+  },
+  "min_resource_fee": "15432",
+  "events": [...]
+}
+```
+
+**Example prompts:**
+
+> _"Estimate the cost to mint 1000 tokens to `GBBD...` using SAC `C...` on testnet."_
+
+> _"How much gas will it cost to burn 500 USDC on mainnet using account `G...`?"_
+
+---
+
 ### `deploy_contract`
 
 Builds a Stellar transaction for deploying a Soroban smart contract. Supports two modes:
