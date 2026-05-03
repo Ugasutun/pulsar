@@ -28,6 +28,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { trackLedgerConsensusTime } from './tools/track_ledger_consensus_time.js';
 import { manageSubscription } from './tools/manage_subscription.js';
 import { analyzeContractStorage } from './tools/analyze_contract_storage.js';
 import { verifyEscrowConditions } from './tools/verify_escrow_conditions.js';
@@ -59,6 +60,7 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  TrackLedgerConsensusTimeInputSchema,
   ManageSubscriptionInputSchema,
   AnalyzeContractStorageInputSchema,
   VerifyEscrowConditionsInputSchema,
@@ -698,6 +700,20 @@ class PulsarServer {
           },
         },
         {
+          name: 'track_ledger_consensus_time',
+          description:
+            'Tracks and reports the average time it takes for ledger consensus on the Stellar network. ' +
+            'Samples N recent ledgers from Horizon and computes average, min, max, and standard deviation ' +
+            'of inter-ledger close times. Useful for detecting network congestion or validator slowdowns. ' +
+            'Stellar targets ~5 s per ledger.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              sample_size: {
+                type: 'number',
+                default: 10,
+                description: 'Number of recent ledgers to sample (2–100). Default: 10.',
+              },
           name: 'generate_contract_client',
           description:
             'Generate a fully-typed TypeScript client class for a deployed Soroban contract. ' +
@@ -1387,6 +1403,17 @@ class PulsarServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+
+      try {
+        logger.debug({ tool: name, arguments: args }, `Executing tool: ${name}`);
+
+        switch (name) {
+          case 'get_account_balance': {
+            const parsed = GetAccountBalanceInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(`Invalid input for get_account_balance`, parsed.error.format());
+            }
+            const result = await getAccountBalance(parsed.data);
       try {
         const parsedToolName = ToolNameSchema.safeParse(name);
         if (!parsedToolName.success) {
@@ -1450,6 +1477,12 @@ class PulsarServer {
           }
 
           case 'fetch_contract_spec': {
+            const parsed = fetchContractSpecSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(`Invalid input for fetch_contract_spec`, parsed.error.format());
+            }
+            const result = await fetchContractSpec(parsed.data);
+            return { content: [{ type: "text", text: JSON.stringify(result) }] };
             const parsed = FetchContractSpecInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
@@ -1889,6 +1922,17 @@ class PulsarServer {
               );
             }
             const result = await verifyEscrowConditions(parsed.data);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'track_ledger_consensus_time': {
+            const parsed = TrackLedgerConsensusTimeInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(`Invalid input for track_ledger_consensus_time`, parsed.error.format());
+            }
+            const result = await trackLedgerConsensusTime(parsed.data);
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };
