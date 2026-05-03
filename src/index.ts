@@ -30,6 +30,7 @@ import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
 import { manageSubscription } from './tools/manage_subscription.js';
 import { analyzeContractStorage } from './tools/analyze_contract_storage.js';
+import { verifyEscrowConditions } from './tools/verify_escrow_conditions.js';
 import { getNetworkParams } from './tools/get_network_params.js';
 import { getContractStorage } from "./tools/get_contract_storage.js";
 import { getLiquidityPool, GetLiquidityPoolInputSchema } from './tools/get_liquidity_pool.js';
@@ -60,6 +61,7 @@ import {
   DeployContractInputSchema,
   ManageSubscriptionInputSchema,
   AnalyzeContractStorageInputSchema,
+  VerifyEscrowConditionsInputSchema,
   GetNetworkParamsInputSchema,
   ToolErrorOutputSchema,
   ToolNameSchema,
@@ -1273,6 +1275,113 @@ class PulsarServer {
             required: ['contract_id'],
           },
         },
+        {
+          name: 'verify_escrow_conditions',
+          description:
+            'Formally verifies the correctness of a Soroban escrow contract state against 8 ' +
+            'critical properties: (P1) conservation law, (P2) FSM state-machine validity, ' +
+            '(P3) access-control invariants, (P4) no double-spend, (P5) arbiter neutrality, ' +
+            '(P6) conditions coherence, (P7) timelock integrity, and (P8) dispute window. ' +
+            'Pure computation — no network calls. Returns a structured verification report ' +
+            'with per-property pass/fail findings and an overall verified flag.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              escrow_id: {
+                type: 'string',
+                description: 'Unique identifier for the escrow contract instance.',
+              },
+              depositor: {
+                type: 'string',
+                description: 'Stellar public key (G...) of the depositing party.',
+              },
+              beneficiary: {
+                type: 'string',
+                description: 'Stellar public key (G...) of the receiving party.',
+              },
+              arbiter: {
+                type: 'string',
+                description:
+                  'Optional Stellar public key (G...) of the neutral arbiter. ' +
+                  'Must differ from both depositor and beneficiary.',
+              },
+              asset_code: {
+                type: 'string',
+                description: 'Asset code of escrowed funds, e.g. "XLM" or "USDC".',
+              },
+              asset_issuer: {
+                type: 'string',
+                description: 'Issuer public key for non-native assets; omit for XLM.',
+              },
+              deposited_amount: {
+                type: 'number',
+                description: 'Total amount deposited into the escrow.',
+              },
+              released_amount: {
+                type: 'number',
+                default: 0,
+                description: 'Amount already released to the beneficiary (default: 0).',
+              },
+              refunded_amount: {
+                type: 'number',
+                default: 0,
+                description: 'Amount already refunded to the depositor (default: 0).',
+              },
+              state: {
+                type: 'string',
+                enum: ['pending', 'funded', 'released', 'refunded', 'disputed', 'resolved'],
+                description: 'Current FSM state of the escrow.',
+              },
+              prior_state: {
+                type: 'string',
+                enum: ['pending', 'funded', 'released', 'refunded', 'disputed', 'resolved'],
+                description:
+                  'Previous FSM state. When provided, the state transition is validated ' +
+                  'against the legal Soroban escrow FSM graph.',
+              },
+              conditions: {
+                type: 'array',
+                default: [],
+                description: 'Release conditions that must all be fulfilled before funds release.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    kind: {
+                      type: 'string',
+                      enum: ['timelock', 'multisig', 'oracle', 'manual'],
+                    },
+                    description: { type: 'string' },
+                    fulfilled: { type: 'boolean' },
+                    required_timestamp: { type: 'number' },
+                  },
+                  required: ['kind', 'description', 'fulfilled'],
+                },
+              },
+              dispute_window_seconds: {
+                type: 'number',
+                description:
+                  'Seconds after funding during which a dispute may be raised. ' +
+                  'Omit to allow disputes at any time while funded.',
+              },
+              funded_timestamp: {
+                type: 'number',
+                description: 'Unix timestamp when the escrow was funded.',
+              },
+              current_timestamp: {
+                type: 'number',
+                description: 'Optional override for "now" as Unix timestamp.',
+              },
+            },
+            required: [
+              'escrow_id',
+              'depositor',
+              'beneficiary',
+              'asset_code',
+              'deposited_amount',
+              'state',
+            ],
+          },
+        },
       ],
     }));
 
@@ -1766,6 +1875,20 @@ class PulsarServer {
               );
             }
             const result = await analyzeContractStorage(parsed.data);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'verify_escrow_conditions': {
+            const parsed = VerifyEscrowConditionsInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for verify_escrow_conditions`,
+                parsed.error.format()
+              );
+            }
+            const result = await verifyEscrowConditions(parsed.data);
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };

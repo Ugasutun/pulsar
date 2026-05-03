@@ -467,6 +467,152 @@ export const AnalyzeContractStorageInputSchema = z.object({
 });
 
 export type AnalyzeContractStorageInput = z.infer<typeof AnalyzeContractStorageInputSchema>;
+
+// ---------------------------------------------------------------------------
+// verify_escrow_conditions  (Issue #194 – Formal Verification Examples)
+// ---------------------------------------------------------------------------
+
+/**
+ * Enum of valid escrow state-machine states.
+ * Matches the canonical Soroban escrow contract FSM.
+ */
+export const EscrowStateSchema = z.enum([
+  'pending', // created, not yet funded
+  'funded', // depositor has locked the funds
+  'released', // funds delivered to beneficiary
+  'refunded', // funds returned to depositor
+  'disputed', // arbiter arbitration in progress
+  'resolved', // arbiter has settled the dispute
+]);
+
+export type EscrowState = z.infer<typeof EscrowStateSchema>;
+
+/**
+ * A single escrow condition that must hold for release to proceed.
+ * Conditions are verified against the current timestamp and/or a boolean
+ * fulfilment flag supplied by the caller.
+ */
+const EscrowConditionSchema = z.object({
+  kind: z
+    .enum(['timelock', 'multisig', 'oracle', 'manual'])
+    .describe('Category of release condition'),
+  description: z
+    .string()
+    .min(1, { message: 'Condition description cannot be empty' })
+    .describe('Human-readable description of the condition'),
+  fulfilled: z
+    .boolean()
+    .describe('Whether this condition has been met at the time of verification'),
+  required_timestamp: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Unix timestamp after which a timelock condition is considered fulfilled'),
+});
+
+export type EscrowCondition = z.infer<typeof EscrowConditionSchema>;
+
+/**
+ * Schema for verify_escrow_conditions tool (Issue #194)
+ *
+ * Performs formal property verification of an escrow contract's state.
+ * This is a pure-computation tool — no network calls are made.
+ *
+ * Verified properties:
+ *   P1  Conservation law       – locked = deposited − released − refunded
+ *   P2  State-machine validity – current state is reachable from prior state
+ *   P3  Access-control         – only authorised parties can trigger transitions
+ *   P4  No double-spend        – released and refunded amounts cannot both be > 0
+ *   P5  Arbiter neutrality     – arbiter ∉ {depositor, beneficiary}
+ *   P6  Conditions coherence   – all conditions are fulfilled before release is allowed
+ *   P7  Timelock integrity     – timelock conditions respect current_timestamp
+ *   P8  Dispute window         – disputes can only be raised while funded or within window
+ */
+export const VerifyEscrowConditionsInputSchema = z.object({
+  escrow_id: z
+    .string()
+    .min(1, { message: 'escrow_id cannot be empty' })
+    .describe('Unique identifier for the escrow contract instance'),
+
+  depositor: StellarPublicKeySchema.describe(
+    'Stellar public key (G...) of the party depositing funds into escrow'
+  ),
+
+  beneficiary: StellarPublicKeySchema.describe(
+    'Stellar public key (G...) of the party who will receive the escrowed funds'
+  ),
+
+  arbiter: StellarPublicKeySchema.optional().describe(
+    'Stellar public key (G...) of the neutral arbiter who resolves disputes. ' +
+      'Must differ from both depositor and beneficiary.'
+  ),
+
+  asset_code: z
+    .string()
+    .min(1, { message: 'asset_code cannot be empty' })
+    .max(12, { message: 'asset_code must be at most 12 characters' })
+    .describe('Asset code of the escrowed funds (e.g. "XLM", "USDC")'),
+
+  asset_issuer: StellarPublicKeySchema.optional().describe(
+    'Issuer public key for non-native assets; omit for XLM'
+  ),
+
+  deposited_amount: z
+    .number()
+    .nonnegative({ message: 'deposited_amount must be non-negative' })
+    .describe('Total amount deposited into the escrow'),
+
+  released_amount: z
+    .number()
+    .nonnegative({ message: 'released_amount must be non-negative' })
+    .default(0)
+    .describe('Amount already released to the beneficiary (default: 0)'),
+
+  refunded_amount: z
+    .number()
+    .nonnegative({ message: 'refunded_amount must be non-negative' })
+    .default(0)
+    .describe('Amount already refunded to the depositor (default: 0)'),
+
+  state: EscrowStateSchema.describe('Current FSM state of the escrow'),
+
+  prior_state: EscrowStateSchema.optional().describe(
+    'Previous FSM state. When provided, the transition from prior_state → state ' +
+      'is validated against the legal transition graph.'
+  ),
+
+  conditions: z
+    .array(EscrowConditionSchema)
+    .default([])
+    .describe('Release conditions that must all be fulfilled before funds can be released'),
+
+  dispute_window_seconds: z
+    .number()
+    .int()
+    .nonnegative({ message: 'dispute_window_seconds must be non-negative' })
+    .optional()
+    .describe(
+      'Seconds after funding during which a dispute may be raised. ' +
+        'Omit to allow disputes at any time while funded.'
+    ),
+
+  funded_timestamp: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Unix timestamp when the escrow was funded; used with dispute_window_seconds'),
+
+  current_timestamp: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Optional override for "now" as Unix timestamp; defaults to wall-clock'),
+});
+
+export type VerifyEscrowConditionsInput = z.infer<typeof VerifyEscrowConditionsInputSchema>;
 /**
  * Schema for get_network_params tool
  *
