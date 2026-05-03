@@ -764,6 +764,9 @@ If the simulation fails (e.g. contract panics, insufficient balance), the `statu
 
 ---
 
+### `simulate_transactions_sequence`
+
+Simulate a sequence of Soroban transactions sequentially against the network. Iterates over an array of XDRs and returns a detailed array of results, errors, footprints, and fee estimates for each transaction.
 ### `get_contract_storage`
 
 Fetch a Soroban contract storage entry by durability and key. Returns the raw ledger entry XDR plus TTL metadata when available. Use `decode_ledger_entry` to inspect the decoded fields.
@@ -772,6 +775,16 @@ Fetch a Soroban contract storage entry by durability and key. Returns the raw le
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
+| `xdrs` | `array of strings` | Yes | An array of base64-encoded transaction envelope XDRs to simulate sequentially |
+| `network` | `string` | No | Override the network for this sequence |
+
+**Output:**
+
+Returns an array of simulation outputs. Each element follows the same structure as `simulate_transaction` above, and includes a `status` field (`"SUCCESS"`, `"ERROR"`, or `"RESTORE_NEEDED"`).
+
+**Example prompt:**
+
+> _"Simulate this sequence of transaction XDRs sequentially and list their costs and any errors."_
 | `contract_id` | `string` | Yes | The Soroban contract address (`C...`) |
 | `storage_type` | `string` | Yes | `instance`, `persistent`, or `temporary` |
 | `key` | `object` | No | Typed SCVal key for persistent/temporary storage, e.g. `{ type: "symbol", value: "Balance" }` |

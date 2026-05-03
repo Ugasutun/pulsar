@@ -17,6 +17,7 @@ import { fetchContractSpec } from './tools/fetch_contract_spec.js';
 import { fetchContractSpec, fetchContractSpecSchema } from './tools/fetch_contract_spec.js';
 import { submitTransaction } from './tools/submit_transaction.js';
 import { simulateTransaction } from './tools/simulate_transaction.js';
+import { simulateTransactionsSequence } from './tools/simulate_transactions_sequence.js';
 import { getAccountBalance } from './tools/get_account_balance.js';
 import { manageRestrictedAddresses, ManageRestrictedAddressesInputSchema } from './tools/manage_restricted_addresses.js';
 import { emergencyPause } from './tools/emergency_pause.js';
@@ -48,6 +49,7 @@ import {
   GetAccountBalanceInputSchema,
   SubmitTransactionInputSchema,
   SimulateTransactionInputSchema,
+  SimulateTransactionsSequenceInputSchema,
   EmergencyPauseInputSchema,
   GenerateContractDocsInputSchema,
   SorobanMathInputSchema,
@@ -772,6 +774,29 @@ class PulsarServer {
           },
         },
         {
+          name: 'fetch_contract_spec',
+          description:
+            'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              contract_id: {
+                type: 'string',
+                description: 'The Soroban contract address (C...)',
+              },
+              network: {
+                type: 'string',
+                enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
+                description: 'Override the active network for this call.',
+              },
+            },
+            required: ['contract_id'],
+          },
+        },
+        {
+          name: 'simulate_transaction',
+          description:
+            'Simulates a transaction on the Soroban RPC and returns results, footprint, fees, and events.',
           name: 'get_claimable_balance',
           description: 'Query claimable balances on Stellar. Returns claimable balances for a specific account (by public key) or a single balance (by balance ID). Includes claimant details, predicates, amounts, and sponsor information.',
           inputSchema: {
@@ -886,6 +911,30 @@ class PulsarServer {
           },
         },
         {
+          name: 'simulate_transactions_sequence',
+          description:
+            'Simulates a sequence of transactions on the Soroban RPC sequentially and returns an array of results, footprints, fees, and events.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              xdrs: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Array of base64-encoded XDRs of the transaction envelopes.',
+              },
+              network: {
+                type: 'string',
+                enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
+                description: 'Override the configured network for this call.',
+              },
+            },
+            required: ['xdrs'],
+          },
+        },
+        {
+          name: 'compute_vesting_schedule',
+          description:
+            'Calculate a token vesting / timelock release schedule for team, investors, or advisors. Returns released and unreleased amounts plus a period-by-period breakdown.',
           name: 'check_network_status',
           description:
             'Probes Horizon and Soroban RPC connectivity for the configured (or specified) network. ' +
@@ -916,17 +965,31 @@ class PulsarServer {
           inputSchema: {
             type: 'object',
             properties: {
+              mode: {
+                type: 'string',
+                enum: ['direct', 'factory'],
+                description:
+                  "Deployment mode: 'direct' (built-in deployer) or 'factory' (via factory contract)",
               data: {
                 type: ['array', 'object'],
                 description: 'Data to export - can be an array of objects or a single object',
               },
               format: {
                 type: 'string',
+                description:
+                  'Stellar public key (G...) that will deploy the contract and pay fees.',
                 enum: ['csv', 'json'],
                 description: 'Export format: csv or json',
               },
               filename: {
                 type: 'string',
+                description:
+                  'SHA-256 hash of the uploaded WASM as 64 hex characters. Required for direct mode.',
+              },
+              salt: {
+                type: 'string',
+                description:
+                  'Optional 32-byte salt as 64 hex characters for deterministic address. Random if omitted.',
                 description: 'Optional filename (without extension). Default: export_{timestamp}',
               },
               include_timestamp: {
@@ -946,6 +1009,8 @@ class PulsarServer {
             properties: {
               network: {
                 type: 'string',
+                description:
+                  'Soroban contract ID (C...) of the factory contract. Required for factory mode.',
                 enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
                 description: 'Override the configured network for this call.',
               },
@@ -963,6 +1028,10 @@ class PulsarServer {
                 type: 'string',
                 description: 'Path to the contract WASM file to analyze.',
               },
+              deploy_args: {
+                type: 'array',
+                description:
+                  "Arguments for factory deploy function as typed SCVal objects. Each item: { type?: 'symbol'|'string'|'u32'|'i32'|'u64'|'i64'|'u128'|'i128'|'bool'|'address'|'bytes'|'void', value: any }",
               max_size_kb: {
                 type: 'number',
                 default: 256,
@@ -1127,6 +1196,20 @@ class PulsarServer {
               throw new PulsarValidationError(`Invalid input for get_contract_storage`, parsed.error.format());
             }
             const result = await getContractStorage(parsed.data);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'simulate_transactions_sequence': {
+            const parsed = SimulateTransactionsSequenceInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for simulate_transactions_sequence`,
+                parsed.error.format()
+              );
+            }
+            const result = await simulateTransactionsSequence(parsed.data);
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };

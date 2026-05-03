@@ -345,6 +345,21 @@ export const DeployContractInputSchema = z.object({
 
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
+/**
+ * Schema for simulate_transactions_sequence tool
+ *
+ * Inputs:
+ * - xdrs: Array of transaction envelope XDRs (required, non-empty base64 strings)
+ * - network: Optional network override
+ */
+export const SimulateTransactionsSequenceInputSchema = z.object({
+  xdrs: z.array(XdrBase64Schema).min(1, { message: 'Must provide at least one XDR to simulate' }),
+  network: NetworkSchema.optional(),
+});
+
+export type SimulateTransactionsSequenceInput = z.infer<
+  typeof SimulateTransactionsSequenceInputSchema
+>;
 export const FetchContractSpecInputSchema = z.object({
   contract_id: ContractIdSchema,
   network: NetworkSchema.optional(),

@@ -27,6 +27,8 @@ describe('deployContract', () => {
     let currentSequence = BigInt(sequence);
     mockServer.loadAccount.mockResolvedValue({
       accountId: () => SOURCE_ACCOUNT,
+      sequenceNumber: () => sequence,
+      incrementSequenceNumber: vi.fn(),
       sequenceNumber: () => currentSequence.toString(),
       incrementSequenceNumber: () => {
         currentSequence += 1n;
