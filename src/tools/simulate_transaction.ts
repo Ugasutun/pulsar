@@ -1,3 +1,4 @@
+import { TransactionBuilder, Networks, SorobanRpc, scValToNative } from '@stellar/stellar-sdk';
 import { TransactionBuilder, Networks, SorobanRpc } from '@stellar/stellar-sdk';
 
 import { config } from '../config.js';
@@ -70,6 +71,8 @@ export async function simulateTransaction(
   if (SorobanRpc.Api.isSimulationSuccess(result)) {
     output.status = 'SUCCESS';
 
+    // Narrowed types might still be tricky depending on SDK version
+    const successRes = result as any;
     // type assertion for SDK response
     const successRes = result as {
       cost?: { cpuIns?: string; memBytes?: string };
@@ -98,6 +101,7 @@ export async function simulateTransaction(
         // Skip scValToNative conversion due to SDK type issues
         output.return_value_native = 'SCVal conversion skipped - use return_value for XDR format';
       } catch (e) {
+        output.return_value_native = 'Failed to decode scVal: ' + (e as Error).message;
         const error = e as Error;
         output.return_value_native = 'Failed to decode scVal: ' + error.message;
       }
@@ -108,6 +112,8 @@ export async function simulateTransaction(
       const resources = successRes.transactionData.build().resources();
       if (resources && resources.footprint()) {
         const footprint = resources.footprint();
+        output.footprint.read_only = footprint.readOnly().map((e: any) => e.toXDR('base64'));
+        output.footprint.read_write = footprint.readWrite().map((e: any) => e.toXDR('base64'));
         output.footprint.read_only = footprint.readOnly().map((e) => e.toXDR('base64'));
         output.footprint.read_write = footprint.readWrite().map((e) => e.toXDR('base64'));
       }
@@ -115,6 +121,11 @@ export async function simulateTransaction(
 
     // Map events
     if (successRes.events) {
+      output.events = successRes.events.map((e: any) => e.toXDR('base64'));
+    }
+  } else if (
+    (SorobanRpc.Api as any).isSimulationRestore &&
+    (SorobanRpc.Api as any).isSimulationRestore(result)
       output.events = successRes.events.map((e) => e.toXDR('base64'));
     }
   } else if (
@@ -128,6 +139,8 @@ export async function simulateTransaction(
     output.error =
       'The transaction cannot be simulated because it requires ledger entry restoration. Please submit a restore operation first.';
   } else if (
+    (SorobanRpc.Api as any).isSimulationRestoreNeeded &&
+    (SorobanRpc.Api as any).isSimulationRestoreNeeded(result)
     (
       SorobanRpc.Api as unknown as { isSimulationRestoreNeeded?: (result: unknown) => boolean }
     ).isSimulationRestoreNeeded?.(result)
@@ -138,6 +151,10 @@ export async function simulateTransaction(
       'The transaction cannot be simulated because it requires ledger entry restoration. Please submit a restore operation first.';
   } else if (SorobanRpc.Api.isSimulationError(result)) {
     output.status = 'ERROR';
+    const errorRes = result as any;
+    output.error = errorRes.error;
+    if (errorRes.events) {
+      output.events = errorRes.events.map((e: any) => e.toXDR('base64'));
     const errorRes = result as {
       error?: string;
       events?: Array<{ toXDR: (format: string) => string }>;

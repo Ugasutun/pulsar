@@ -35,6 +35,9 @@ describe('computeVestingSchedule', () => {
       current_timestamp: BASE_TIME + 31536000 + 5184000, // 1 year + 2 months
     })) as unknown as { [key: string]: any };
 
+    expect(result.released_amount).toBe('66666.6666666');
+    expect(result.unreleased_amount).toBe('933333.3333334');
+    expect(result.vesting_percentage).toBe(6.67);
     expect(result.released_amount).toBe('54054.0540540');
     expect(result.unreleased_amount).toBe('945945.9459460');
     expect(result.released_amount).toBe('54054.0540541');

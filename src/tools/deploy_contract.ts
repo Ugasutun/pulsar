@@ -128,6 +128,7 @@ export const deployContract: McpToolHandler<typeof DeployContractInputSchema> = 
         { status: 404, account_id: sourceAccount }
       );
     }
+    throw new PulsarNetworkError(`Failed to load source account: ${err.message}`, {
     const message = err instanceof Error ? err.message : String(err);
     throw new PulsarNetworkError(`Failed to load source account: ${message}`, {
     throw new PulsarNetworkError(`Failed to load source account: ${error.message || String(err)}`, {

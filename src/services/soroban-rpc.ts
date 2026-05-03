@@ -1,3 +1,4 @@
+import { SorobanRpc } from '@stellar/stellar-sdk';
 import { SorobanRpc, Networks, TransactionBuilder, xdr } from '@stellar/stellar-sdk';
 
 import { config } from '../config.js';

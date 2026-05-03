@@ -116,11 +116,15 @@ export const getAccountBalance: McpToolHandler<
     return result;
   } catch (err: any) {
     if (err.response && err.response.status === 404) {
-      throw new PulsarNetworkError(
-        "Account not found — it may not be funded yet",
-        { status: 404, account_id }
-      );
+      throw new PulsarNetworkError('Account not found — it may not be funded yet', {
+        status: 404,
+        account_id,
+      });
     }
+
+    throw new PulsarNetworkError(err.message || 'Failed to load account balance', {
+      originalError: err,
+    });
     throw new PulsarNetworkError(
       err.message || "Failed to load account balance",
       { originalError: err }

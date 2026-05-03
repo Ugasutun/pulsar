@@ -28,6 +28,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { getPriceFeed } from './tools/get_price_feed.js';
 import {
   calculateDutchAuctionPrice,
@@ -291,6 +292,8 @@ class PulsarServer {
         },
         {
           name: 'fetch_contract_spec',
+          description:
+            'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
@@ -729,6 +732,24 @@ class PulsarServer {
           },
         },
         {
+          name: 'decode_ledger_entry',
+          description:
+            'Decode a raw base64-encoded XDR ledger entry into a human-readable JSON structure.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              xdr: {
+                type: 'string',
+                description: 'Base64-encoded XDR of the ledger entry (key or value).',
+              },
+              entry_type: {
+                type: 'string',
+                enum: ['account', 'trustline', 'contract_data', 'contract_code', 'offer', 'data'],
+                description:
+                  'Hint for decoding: account, trustline, contract_data, contract_code, offer, data.',
+              },
+            },
+            required: ['xdr'],
           name: 'get_price_feed',
           description:
             'Queries a decentralized oracle contract for the price of a base asset in terms of a quote asset. Assumes the oracle implements a standard interface with a get_price(base_asset: Symbol, quote_asset: Symbol) -> i128 function.',
@@ -1742,6 +1763,8 @@ class PulsarServer {
               );
             }
             const result = await fetchContractSpec(parsed.data);
+            }
+            const result = await fetchContractSpec(parsed.data);
             return { content: [{ type: "text", text: JSON.stringify(result) }] };
             const parsed = FetchContractSpecInputSchema.safeParse(args);
             if (!parsed.success) {
@@ -2269,6 +2292,19 @@ class PulsarServer {
             }
             const result = await safeMathCompute(parsed.data);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+          case 'decode_ledger_entry': {
+            const parsed = decodeLedgerEntrySchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for decode_ledger_entry`,
+                parsed.error.format()
+              );
+            }
+            const result = await decodeLedgerEntryTool(parsed.data);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
           }
 
           default:

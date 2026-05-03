@@ -36,6 +36,7 @@ export type DecodeLedgerEntryInput = z.infer<typeof decodeLedgerEntrySchema>;
  * Takes a raw base64 XDR ledger entry and returns a human-readable JSON representation.
  */
 export const decodeLedgerEntryTool = async (input: DecodeLedgerEntryInput): Promise<McpResult> => {
+  const { xdr, entry_type: entryType } = input;
   const { xdr, entry_type: entryType, compression } = input;
 
   const result = await decodeLedgerEntry(xdr, entryType, compression);
