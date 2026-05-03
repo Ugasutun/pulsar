@@ -13,6 +13,9 @@ describe('benchmarkGas', () => {
       simulateTransaction: vi.fn().mockResolvedValue(fakeSim),
     }));
     const res = await benchmarkGas({
+      simulateTransaction: vi.fn().mockResolvedValue(fakeSim),
+    }));
+    const res = await benchmarkGas({
 import { benchmarkGas } from './benchmark_gas.js';
 
 describe('benchmarkGas', () => {

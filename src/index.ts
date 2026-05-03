@@ -1,4 +1,18 @@
 #!/usr/bin/env node
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ErrorCode,
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js';
+
+import { config } from './config.js';
+import { TOOL_REGISTRY } from './registry.js';
+import logger from './logger.js';
+import { PulsarError, PulsarNetworkError, PulsarValidationError } from './errors.js';
+import { PulsarDebugger } from './pulsar-debugger.js';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
@@ -144,6 +158,11 @@ class PulsarServer {
 
   private setupHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: TOOL_REGISTRY.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      })),
       tools: [
         {
           name: 'get_account_balance',
@@ -1652,6 +1671,21 @@ class PulsarServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+      const tool = TOOL_REGISTRY.find((t) => t.name === name);
+
+      if (!tool) {
+        throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`);
+      }
+
+      try {
+        logger.debug({ tool: name, arguments: args }, `Executing tool: ${name}`);
+
+        const parsed = tool.zodSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new PulsarValidationError(`Invalid input for ${name}`, parsed.error.format());
+        }
+
+        const result = await tool.handler(parsed.data);
 
       try {
         logger.debug({ tool: name, arguments: args }, `Executing tool: ${name}`);
@@ -2360,6 +2394,8 @@ class PulsarServer {
     if (error instanceof PulsarError) {
       pulsarError = error;
     } else if (error instanceof McpError) {
+      throw error;
+    } else {
       // Log MCP errors (e.g. MethodNotFound) before passing through
       await logToolExecution(toolName, inputs, 'error', {
         status: 'error',
@@ -2471,6 +2507,21 @@ class PulsarServer {
   }
 }
 
+const args = process.argv.slice(2);
+if (args.includes('--debug') || args.includes('-d')) {
+  const debuggerInstance = new PulsarDebugger();
+  debuggerInstance.start().catch((error) => {
+    /* eslint-disable-next-line no-console */
+    console.error('❌ Fatal error in pulsar debugger:', error);
+    process.exit(1);
+  });
+} else {
+  const server = new PulsarServer();
+  server.run().catch((error) => {
+    logger.fatal({ error }, '❌ Fatal error in pulsar server');
+    process.exit(1);
+  });
+}
 const pulsar = new PulsarServer();
 pulsar.run().catch((error) => {
   logger.fatal({ error }, 'Fatal error in pulsar server');

@@ -72,6 +72,9 @@ export async function simulateTransaction(
     output.status = 'SUCCESS';
 
     // Narrowed types might still be tricky depending on SDK version
+    const successRes = result as SorobanRpc.Api.SimulateTransactionSuccessResponse;
+
+    output.cost.cpu_instructions = successRes.cost?.cpuInsns || '0';
     const successRes = result as any;
     // type assertion for SDK response
     const successRes = result as {
@@ -121,6 +124,9 @@ export async function simulateTransaction(
 
     // Map events
     if (successRes.events) {
+      output.events = successRes.events.map((e) => e.toXDR('base64'));
+    }
+  } else if (SorobanRpc.Api.isSimulationRestore(result)) {
       output.events = successRes.events.map((e: any) => e.toXDR('base64'));
     }
   } else if (
@@ -151,6 +157,9 @@ export async function simulateTransaction(
       'The transaction cannot be simulated because it requires ledger entry restoration. Please submit a restore operation first.';
   } else if (SorobanRpc.Api.isSimulationError(result)) {
     output.status = 'ERROR';
+    const errorRes = result as SorobanRpc.Api.SimulateTransactionErrorResponse;
+    output.error = errorRes.error;
+    if (errorRes.events) {
     const errorRes = result as any;
     output.error = errorRes.error;
     if (errorRes.events) {
