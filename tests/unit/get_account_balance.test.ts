@@ -3,6 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getHorizonServer } from '../../src/services/horizon.js';
 import { getAccountBalance } from '../../src/tools/get_account_balance.js';
 
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import { getAccountBalance } from '../../src/tools/get_account_balance.js';
+import { getHorizonServer } from '../../src/services/horizon.js';
+import { getAccountBalance, accountBalanceCache } from "../../src/tools/get_account_balance.js";
+import { getHorizonServer } from "../../src/services/horizon.js";
+
+// Mock the services
 vi.mock('../../src/services/horizon.js', () => ({
   getHorizonServer: vi.fn(),
 }));
@@ -15,6 +23,7 @@ describe('getAccountBalance', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    accountBalanceCache.clear();
     mockServer = {
       loadAccount: vi.fn(),
     };
@@ -23,6 +32,10 @@ describe('getAccountBalance', () => {
 
   it('returns balances for a funded account', async () => {
     mockServer.loadAccount.mockResolvedValue({
+  const ACCOUNT_ID = 'GDH6TOWBDPXG7H5XQAWY2236P44XGHYYND43NHN7Q4XQAWY2236P44XG';
+
+  it('returns balances for a funded account', async () => {
+    const mockAccount = {
       balances: [
         { asset_type: 'native', balance: '100.0000000' },
         {
@@ -30,6 +43,12 @@ describe('getAccountBalance', () => {
           asset_code: 'USDC',
           asset_issuer: 'GABC...',
           balance: '50.00',
+        { asset_type: "native", balance: "100.0000000" },
+        {
+          asset_type: "credit_alphanum4",
+          asset_code: "USDC",
+          asset_issuer: "GABC...",
+          balance: "50.00"
         },
       ],
     });
@@ -54,6 +73,10 @@ describe('getAccountBalance', () => {
 
   it('filters by asset_code', async () => {
     mockServer.loadAccount.mockResolvedValue({
+  });
+
+  it('filters by asset_code', async () => {
+    const mockAccount = {
       balances: [
         { asset_type: 'native', balance: '100.00' },
         {
@@ -82,6 +105,10 @@ describe('getAccountBalance', () => {
 
   it('filters by asset_issuer', async () => {
     mockServer.loadAccount.mockResolvedValue({
+  const ISSUER_ID = 'GBH6TOWBDPXG7H5XQAWY2236P44XGHYYND43NHN7Q4XQAWY2236P44XG';
+
+  it('filters by asset_issuer', async () => {
+    const mockAccount = {
       balances: [
         {
           asset_type: 'credit_alphanum4',
@@ -97,6 +124,8 @@ describe('getAccountBalance', () => {
         },
       ],
     });
+
+    mockServer.loadAccount.mockResolvedValue(mockAccount);
 
     const result = (await getAccountBalance({
       account_id: ACCOUNT_ID,
@@ -126,6 +155,21 @@ describe('getAccountBalance', () => {
   });
 
   it('throws other network errors with account diagnostics', async () => {
+      'Account not found — it may not be funded yet'
+    );
+    await expect(getAccountBalance({ account_id: ACCOUNT_ID }))
+      .rejects.toThrow("Account not found — it may not be funded yet");
+
+    try {
+      await getAccountBalance({ account_id: ACCOUNT_ID });
+    } catch (e: any) {
+      expect(e.name).toBe('PulsarNetworkError');
+      expect(e.details.status).toBe(404);
+      expect(e.details.account_id).toBe(ACCOUNT_ID);
+    }
+  });
+
+  it('throws other network errors', async () => {
     const error = new Error('Gateway Timeout');
     (error as any).response = { status: 504 };
     mockServer.loadAccount.mockRejectedValue(error);
@@ -145,5 +189,33 @@ describe('getAccountBalance', () => {
     await expect(getAccountBalance({ account_id: ACCOUNT_ID })).rejects.toThrow(
       'Failed to load account balance'
     );
+  });
+
+  it("normalizes account_id before lookup (trims whitespace, uppercases)", async () => {
+    mockServer.loadAccount.mockResolvedValue({ balances: [] });
+
+    const result = (await getAccountBalance({ account_id: `  ${ACCOUNT_ID.toLowerCase()}  ` })) as any;
+    expect(result.account_id).toBe(ACCOUNT_ID);
+    expect(mockServer.loadAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+  });
+
+  it("returns cached result on second call without hitting network", async () => {
+    mockServer.loadAccount.mockResolvedValue({
+      balances: [{ asset_type: "native", balance: "42.0" }],
+    });
+
+    await getAccountBalance({ account_id: ACCOUNT_ID });
+    await getAccountBalance({ account_id: ACCOUNT_ID });
+
+    expect(mockServer.loadAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches results independently per network", async () => {
+    mockServer.loadAccount.mockResolvedValue({ balances: [] });
+
+    await getAccountBalance({ account_id: ACCOUNT_ID, network: "testnet" });
+    await getAccountBalance({ account_id: ACCOUNT_ID, network: "mainnet" });
+
+    expect(mockServer.loadAccount).toHaveBeenCalledTimes(2);
   });
 });
