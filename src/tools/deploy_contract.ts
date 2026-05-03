@@ -121,6 +121,8 @@ export const deployContract: McpToolHandler<typeof DeployContractInputSchema> = 
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response?.status;
     if (status === 404) {
+    const error = err as { response?: { status?: number }; message?: string };
+    if (error.response?.status === 404) {
       throw new PulsarNetworkError(
         `Source account ${sourceAccount} not found. Fund the account before deploying.`,
         { status: 404, account_id: sourceAccount }
@@ -128,6 +130,7 @@ export const deployContract: McpToolHandler<typeof DeployContractInputSchema> = 
     }
     const message = err instanceof Error ? err.message : String(err);
     throw new PulsarNetworkError(`Failed to load source account: ${message}`, {
+    throw new PulsarNetworkError(`Failed to load source account: ${error.message || String(err)}`, {
       originalError: err,
     });
   }
