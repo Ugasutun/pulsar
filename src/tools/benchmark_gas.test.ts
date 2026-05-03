@@ -11,6 +11,10 @@ describe('benchmarkGas', () => {
     const res = await benchmarkGas({
       xdr: 'AAAA',
       network: 'testnet',
+      contractId: 'abc',
+      method: 'foo',
+      args: [1, 2],
+      account: 'testacc',
     });
     expect(res.cpuMs).toBeTypeOf('number');
     expect(res.memDelta).toBeTypeOf('number');
@@ -26,6 +30,10 @@ describe('benchmarkGas', () => {
     const res = await benchmarkGas({
       xdr: 'AAAA',
       network: 'testnet',
+      contractId: 'abc',
+      method: 'foo',
+      args: [],
+      account: 'testacc',
     });
     expect(res.error).toBeInstanceOf(Error);
     expect(res.pulsarGas).toBeNull();

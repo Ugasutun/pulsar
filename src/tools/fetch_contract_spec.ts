@@ -6,6 +6,22 @@ import { getRpcUrl } from '../services/soroban-rpc.js';
 import { config } from '../config.js';
 import { PulsarValidationError } from '../errors.js';
 export type FetchContractSpecInput = z.infer<typeof FetchContractSpecInputSchema>;
+import { ContractIdSchema } from "../types.js";
+import { runStellarCli } from "../services/stellar-cli.js";
+import { getRpcUrl } from "../services/soroban-rpc.js";
+import { config } from "../config.js";
+import { PulsarValidationError } from "../errors.js";
+import { normalizeAddress, AddressCache } from "../utils/address.js";
+
+export const fetchContractSpecSchema = z.object({
+  contract_id: ContractIdSchema,
+  network: z
+    .enum(["mainnet", "testnet", "futurenet", "custom"])
+    .optional()
+    .describe("Override the active network for this call."),
+});
+
+export type FetchContractSpecInput = z.infer<typeof fetchContractSpecSchema>;
 
 export interface ContractFunction {
   name: string;
@@ -28,13 +44,22 @@ export interface FetchContractSpecOutput {
   raw_xdr: string;
 }
 
+// Contract specs are immutable once deployed — a 5-minute TTL avoids
+// redundant CLI subprocess spawns for repeated lookups of the same contract.
+export const contractSpecCache = new AddressCache<FetchContractSpecOutput>(5 * 60_000);
+
 export async function fetchContractSpec(
   input: FetchContractSpecInput
 ): Promise<FetchContractSpecOutput> {
   const network = input.network ?? config.stellarNetwork;
+  const contract_id = normalizeAddress(input.contract_id);
+
+  const cacheKey = `${network}:${contract_id}`;
+  const cached = contractSpecCache.get(cacheKey);
+  if (cached) return cached;
+
   const rpcUrl = getRpcUrl(network);
 
-  // Build args as an array — no shell interpolation
   const args = [
     'contract',
     'info',
@@ -42,6 +67,12 @@ export async function fetchContractSpec(
     '--contract-id',
     input.contract_id,
     '--rpc-url',
+    "contract",
+    "info",
+    "interface",
+    "--contract-id",
+    contract_id,
+    "--rpc-url",
     rpcUrl,
     '--output',
     'json',
@@ -49,7 +80,6 @@ export async function fetchContractSpec(
 
   const { stdout } = await runStellarCli(args);
 
-  // The CLI outputs a JSON array of spec entries
   let raw: unknown;
   try {
     raw = JSON.parse(stdout.trim());
@@ -59,7 +89,9 @@ export async function fetchContractSpec(
     });
   }
 
-  return parseCliSpec(raw, input.contract_id, network);
+  const result = parseCliSpec(raw, contract_id, network);
+  contractSpecCache.set(cacheKey, result);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +111,7 @@ function parseCliSpec(raw: unknown, contractId: string, network: string): FetchC
 
     // Top-level raw XDR if present
     if (typeof e['xdr'] === 'string' && !raw_xdr) raw_xdr = e['xdr'] as string;
+    if (typeof e["xdr"] === "string" && !raw_xdr) raw_xdr = e["xdr"] as string;
 
     const kind = e['type'] ?? e['kind'];
 

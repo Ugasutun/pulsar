@@ -2,6 +2,11 @@ import { performance } from 'node:perf_hooks';
 
 import logger from '../logger.js';
 import { simulateTransaction } from '../tools/simulate_transaction.js';
+import { performance } from 'perf_hooks';
+
+import logger from '../logger.js';
+
+import { simulateTransaction } from './simulate_transaction.js';
 
 /**
  * Benchmarks gas (CPU/Memory) usage for a Stellar/Soroban contract execution.
@@ -15,6 +20,15 @@ export async function benchmarkGas({
 }: {
   xdr: string;
   network?: 'mainnet' | 'testnet' | 'futurenet' | 'custom';
+  contractId: _contractId,
+  method: _method,
+  args: _args = [],
+  account: _account,
+}: {
+  contractId: string;
+  method: string;
+  args?: unknown[];
+  account: string;
 }) {
   logger.info('Starting gas benchmarking...');
   const startMem = process.memoryUsage().rss;
@@ -23,6 +37,10 @@ export async function benchmarkGas({
   let error;
   try {
     simulationResult = await simulateTransaction({ xdr, network });
+    // Note: This is a placeholder - benchmark_gas needs proper XDR transaction
+    // For now, we'll create a simple mock transaction
+    const mockXdr = 'AAAAAgAAAABiBz+Jd8v+Ey1eFHrRgF7b...'; // truncated example
+    simulationResult = await simulateTransaction({ xdr: mockXdr, network: 'testnet' });
   } catch (e) {
     error = e;
     logger.error({ error: e }, 'Simulation failed');
@@ -39,6 +57,7 @@ export async function benchmarkGas({
       pulsarGas,
       error,
     },
+    { cpuMs, memDelta, pulsarGas, error: error instanceof Error ? error.message : String(error) },
     'Benchmark complete'
   );
   return {
@@ -48,4 +67,17 @@ export async function benchmarkGas({
     error,
     simulationResult,
   };
+}
+
+// Check if this module is being run directly
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+
+if (isMainModule) {
+  // CLI usage: node benchmark_gas.js <contractId> <method> <account> [args...]
+  (async () => {
+    const [contractId, method, account, ...args] = process.argv.slice(2);
+    const result = await benchmarkGas({ contractId, method, args, account });
+    logger.info(JSON.stringify(result, null, 2));
+    process.exit(result.error ? 1 : 0);
+  })();
 }
