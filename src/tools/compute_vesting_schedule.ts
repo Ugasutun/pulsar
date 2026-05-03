@@ -79,6 +79,15 @@ export const computeVestingSchedule: McpToolHandler<
       totalPeriods > 0n
         ? safeDiv(safeMul(totalAmountStroops, periodsElapsed), totalPeriods)
         : totalAmountStroops;
+  let released = 0;
+  if (elapsed >= vesting_duration_seconds) {
+    released = total_amount;
+  } else if (elapsed >= cliff_seconds) {
+    const vestingElapsed = elapsed - cliff_seconds;
+    const vestingDuration = vesting_duration_seconds - cliff_seconds;
+    const periodsElapsed = Math.floor(vestingElapsed / release_frequency_seconds);
+    const totalPeriods = Math.ceil(vestingDuration / release_frequency_seconds);
+    released = totalPeriods > 0 ? (total_amount * periodsElapsed) / totalPeriods : total_amount;
   }
 
   const unreleasedStroops = safeSub(totalAmountStroops, releasedStroops);
@@ -117,6 +126,15 @@ export const computeVestingSchedule: McpToolHandler<
     });
 
     allocatedStroops = safeAdd(allocatedStroops, currentPeriodAmountStroops);
+  // Adjust last period amount to account for rounding
+  if (schedule.length > 0) {
+    const sumPeriods = schedule.reduce((sum, s) => sum + parseFloat(s.amount), 0);
+    const diff = total_amount - sumPeriods;
+    if (Math.abs(diff) > 0.0000001) {
+      schedule[schedule.length - 1].amount = (
+        parseFloat(schedule[schedule.length - 1].amount) + diff
+      ).toFixed(7);
+    }
   }
 
   // Find next release date

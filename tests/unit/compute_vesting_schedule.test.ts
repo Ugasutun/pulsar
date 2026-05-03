@@ -37,6 +37,8 @@ describe('computeVestingSchedule', () => {
 
     expect(result.released_amount).toBe('54054.0540540');
     expect(result.unreleased_amount).toBe('945945.9459460');
+    expect(result.released_amount).toBe('54054.0540541');
+    expect(result.unreleased_amount).toBe('945945.9459459');
     expect(result.vesting_percentage).toBe(5.41);
     expect(result.schedule[0].released).toBe(true);
     expect(result.schedule[1].released).toBe(true);
