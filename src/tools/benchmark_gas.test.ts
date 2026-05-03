@@ -9,6 +9,8 @@ describe('benchmarkGas', () => {
       simulateTransaction: vi.fn().mockResolvedValue(fakeSim),
     }));
     const res = await benchmarkGas({
+      xdr: 'AAAA',
+      network: 'testnet',
       contractId: 'abc',
       method: 'foo',
       args: [1, 2],
@@ -26,6 +28,8 @@ describe('benchmarkGas', () => {
       simulateTransaction: vi.fn().mockRejectedValue(new Error('fail')),
     }));
     const res = await benchmarkGas({
+      xdr: 'AAAA',
+      network: 'testnet',
       contractId: 'abc',
       method: 'foo',
       args: [],

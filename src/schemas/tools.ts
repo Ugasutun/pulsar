@@ -8,6 +8,8 @@
 
 import { z } from 'zod';
 
+import { SIMULATE_TRANSACTION_STATUSES, TOOL_NAMES, type ToolName } from '../constants/tools.js';
+
 import {
   StellarPublicKeySchema,
   ContractIdSchema,
@@ -343,6 +345,154 @@ export const DeployContractInputSchema = z.object({
 
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
+export const FetchContractSpecInputSchema = z.object({
+  contract_id: ContractIdSchema,
+  network: NetworkSchema.optional(),
+});
+
+export type FetchContractSpecInput = z.infer<typeof FetchContractSpecInputSchema>;
+
+const BalanceSchema = z.object({
+  asset_type: z.string(),
+  asset_code: z.string().optional(),
+  asset_issuer: z.string().optional(),
+  balance: z.string(),
+});
+
+export const GetAccountBalanceOutputSchema = z.object({
+  account_id: StellarPublicKeySchema,
+  balances: z.array(BalanceSchema),
+});
+
+const ContractFunctionSchema = z.object({
+  name: z.string(),
+  doc: z.string().optional(),
+  inputs: z.array(
+    z.object({
+      name: z.string(),
+      type: z.string(),
+    })
+  ),
+  outputs: z.array(
+    z.object({
+      type: z.string(),
+    })
+  ),
+});
+
+const ContractEventSchema = z.object({
+  name: z.string(),
+  topics: z
+    .array(
+      z.object({
+        type: z.string(),
+      })
+    )
+    .optional(),
+  data: z
+    .object({
+      type: z.string(),
+    })
+    .optional(),
+});
+
+export const FetchContractSpecOutputSchema = z.object({
+  contract_id: ContractIdSchema,
+  network: NetworkSchema.or(z.string()),
+  functions: z.array(ContractFunctionSchema),
+  events: z.array(ContractEventSchema),
+  raw_xdr: z.string(),
+});
+
+const SubmitTransactionBaseOutputSchema = z.object({
+  hash: z.string().min(1),
+  ledger: z.number().nullable().optional(),
+  fee_charged: z.union([z.string(), z.number()]).nullable().optional(),
+  envelope_xdr: z.string().nullable().optional(),
+  result_xdr: z.string().nullable().optional(),
+  result_meta_xdr: z.string().nullable().optional(),
+});
+
+export const SubmitTransactionOutputSchema = z.discriminatedUnion('status', [
+  SubmitTransactionBaseOutputSchema.extend({
+    status: z.literal('SUBMITTED'),
+  }),
+  SubmitTransactionBaseOutputSchema.extend({
+    status: z.literal('SUCCESS'),
+    return_value: z.string().nullable().optional(),
+  }),
+  SubmitTransactionBaseOutputSchema.extend({
+    status: z.literal('FAILED'),
+    diagnostic_events: z.array(z.unknown()).nullable().optional(),
+  }),
+  SubmitTransactionBaseOutputSchema.extend({
+    status: z.literal('TIMEOUT'),
+    message: z.string(),
+  }),
+]);
+
+export const SimulateTransactionOutputSchema = z.object({
+  status: z.enum(SIMULATE_TRANSACTION_STATUSES),
+  return_value: z.string().optional(),
+  return_value_native: z.unknown().optional(),
+  cost: z.object({
+    cpu_instructions: z.string(),
+    memory_bytes: z.string(),
+  }),
+  footprint: z.object({
+    read_only: z.array(z.string()),
+    read_write: z.array(z.string()),
+  }),
+  min_resource_fee: z.string(),
+  events: z.array(z.string()),
+  error: z.string().optional(),
+  restore_needed: z.boolean().optional(),
+});
+
+const VestingReleaseSchema = z.object({
+  release_date: z.string(),
+  amount: z.string(),
+  released: z.boolean(),
+});
+
+export const ComputeVestingScheduleOutputSchema = z.object({
+  beneficiary_type: z.enum(['team', 'investor', 'advisor', 'other']),
+  total_amount: z.string(),
+  start_date: z.string(),
+  cliff_date: z.string(),
+  end_date: z.string(),
+  released_amount: z.string(),
+  unreleased_amount: z.string(),
+  vesting_percentage: z.number(),
+  next_release_date: z.string().optional(),
+  schedule: z.array(VestingReleaseSchema),
+});
+
+export const DeployContractOutputSchema = z.object({
+  mode: z.enum(['direct', 'factory']),
+  transaction_xdr: z.string().min(1),
+  predicted_contract_id: ContractIdSchema.optional(),
+  network: NetworkSchema.or(z.string()),
+  source_account: StellarPublicKeySchema,
+});
+
+export const ToolErrorOutputSchema = z.object({
+  status: z.literal('error'),
+  error_code: z.string(),
+  message: z.string(),
+  details: z.unknown().optional(),
+});
+
+export const TOOL_OUTPUT_SCHEMAS: Record<ToolName, z.ZodTypeAny> = {
+  get_account_balance: GetAccountBalanceOutputSchema,
+  fetch_contract_spec: FetchContractSpecOutputSchema,
+  submit_transaction: SubmitTransactionOutputSchema,
+  simulate_transaction: SimulateTransactionOutputSchema,
+  compute_vesting_schedule: ComputeVestingScheduleOutputSchema,
+  deploy_contract: DeployContractOutputSchema,
+};
+
+export const ToolNameSchema = z.enum(TOOL_NAMES);
 /**
  * Schema for get_liquidity_pool tool
  *

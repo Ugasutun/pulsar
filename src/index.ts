@@ -13,6 +13,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { config } from './config.js';
+import { fetchContractSpec } from './tools/fetch_contract_spec.js';
 import { fetchContractSpec, fetchContractSpecSchema } from './tools/fetch_contract_spec.js';
 import { submitTransaction } from './tools/submit_transaction.js';
 import { simulateTransaction } from './tools/simulate_transaction.js';
@@ -43,6 +44,7 @@ import { buildConditionalTransaction } from './tools/build_conditional_transacti
 import { batchEvents } from './tools/batch_events.js';
 
 import {
+  FetchContractSpecInputSchema,
   GetAccountBalanceInputSchema,
   SubmitTransactionInputSchema,
   SimulateTransactionInputSchema,
@@ -51,6 +53,9 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  ToolErrorOutputSchema,
+  ToolNameSchema,
+  TOOL_OUTPUT_SCHEMAS,
   GetContractStorageInputSchema,
   OptimizeContractBytecodeInputSchema,
   GetProtocolVersionInputSchema,
@@ -75,6 +80,8 @@ import {
 
 import logger from './logger.js';
 import { PulsarError, PulsarNetworkError, PulsarValidationError } from './errors.js';
+import { validateToolOutput } from './utils/output-validation.js';
+import type { ToolName } from './constants/tools.js';
 import { startMetricsRecording, getPrometheusMetrics } from './services/metrics.js';
 import { trackToolExecution } from './services/metrics-tracking.js';
 import { PulsarError, PulsarNetworkError, PulsarValidationError, PulsarRestrictedAddressError } from './errors.js';
@@ -256,6 +263,8 @@ class PulsarServer {
           name: 'fetch_contract_spec',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
+          inputSchema: {
+            type: 'object',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description: 'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
@@ -974,6 +983,11 @@ class PulsarServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       try {
+        const parsedToolName = ToolNameSchema.safeParse(name);
+        if (!parsedToolName.success) {
+          throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`);
+        }
+        const toolName = parsedToolName.data;
         logger.debug({ tool: name, arguments: args }, `Executing tool: ${name}`);
         switch (name) {
           case 'get_account_balance': {
@@ -987,7 +1001,7 @@ class PulsarServer {
           throw new PulsarRestrictedAddressError(guardResult.address!, name);
         }
 
-        switch (name) {
+        switch (toolName) {
           case 'get_account_balance': {
             const parsed = GetAccountBalanceInputSchema.safeParse(args);
             if (!parsed.success) {
@@ -998,6 +1012,7 @@ class PulsarServer {
             }
             const result = await trackToolExecution('get_account_balance', () => getAccountBalance(parsed.data));
             const result = await getAccountBalance(parsed.data);
+            return this.successResponse(toolName, result);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'fetch_contract_spec': {
@@ -1025,13 +1040,15 @@ class PulsarServer {
           }
 
           case 'fetch_contract_spec': {
-            const parsed = fetchContractSpecSchema.safeParse(args);
+            const parsed = FetchContractSpecInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
                 `Invalid input for fetch_contract_spec`,
                 parsed.error.format()
               );
             }
+            const result = await fetchContractSpec(parsed.data);
+            return this.successResponse(toolName, result);
             const result = await trackToolExecution('fetch_contract_spec', () => fetchContractSpec(parsed.data));
             return { content: [{ type: "text", text: JSON.stringify(result) }] };
             const result = await fetchContractSpec(parsed.data);
@@ -1054,6 +1071,8 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
+            const result = await submitTransaction(parsed.data);
+            return this.successResponse(toolName, result);
             const result = await trackToolExecution('submit_transaction', () => submitTransaction(parsed.data));
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
@@ -1091,6 +1110,8 @@ class PulsarServer {
                 parsed.error.format()
               );
             }
+            const result = await simulateTransaction(parsed.data);
+            return this.successResponse(toolName, result);
             const result = await trackToolExecution('simulate_transaction', () => simulateTransaction(parsed.data));
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
@@ -1136,6 +1157,11 @@ class PulsarServer {
             if (!parsed.success) {
               throw new PulsarValidationError(
                 `Invalid input for compute_vesting_schedule`,
+                parsed.error.format()
+              );
+            }
+            const result = await computeVestingSchedule(parsed.data);
+            return this.successResponse(toolName, result);
                 `Invalid input for soroban_math`,
                 parsed.error.format()
               );
@@ -1183,6 +1209,9 @@ class PulsarServer {
                 `Invalid input for deploy_contract`,
                 parsed.error.format()
               );
+            }
+            const result = await deployContract(parsed.data);
+            return this.successResponse(toolName, result);
               throw new PulsarValidationError(`Invalid input for manage_restricted_addresses`, parsed.error.format());
             }
             const result = await trackToolExecution('deploy_contract', () => deployContract(parsed.data));
@@ -1379,9 +1408,6 @@ class PulsarServer {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };
           }
-
-          default:
-            throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`);
         }
       } catch (error) {
         logger.error(error);
@@ -1398,6 +1424,19 @@ class PulsarServer {
     });
   }
 
+  private successResponse(toolName: ToolName, result: unknown) {
+    const outputSchema = TOOL_OUTPUT_SCHEMAS[toolName];
+    const validatedResult = validateToolOutput(toolName, outputSchema, result);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(validatedResult),
+        },
+      ],
+    };
+  }
+
   private handleToolError(error: unknown, toolName: string) {
     let pulsarError: PulsarError;
     if (error instanceof PulsarError) {
@@ -1411,6 +1450,31 @@ class PulsarServer {
         originalError: error,
       });
     }
+
+    logger.error(
+      {
+        tool: toolName,
+        errorCode: pulsarError.code,
+        error: pulsarError.message,
+        details: pulsarError.details,
+      },
+      `Error executing tool ${toolName}`
+    );
+
+    const errorPayload = validateToolOutput('tool_error', ToolErrorOutputSchema, {
+      status: 'error',
+      error_code: pulsarError.code,
+      message: pulsarError.message,
+      details: pulsarError.details,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(errorPayload),
+        },
+      ],
     logger.error({ tool: toolName, errorCode: pulsarError.code, error: pulsarError.message, details: pulsarError.details }, `Error executing tool ${toolName}`);
     return {
       content: [{ type: 'text', text: JSON.stringify({ status: 'error', error_code: pulsarError.code, message: pulsarError.message, details: pulsarError.details }) }],

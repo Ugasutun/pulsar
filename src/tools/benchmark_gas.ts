@@ -1,3 +1,7 @@
+import { performance } from 'node:perf_hooks';
+
+import logger from '../logger.js';
+import { simulateTransaction } from '../tools/simulate_transaction.js';
 import { performance } from 'perf_hooks';
 
 import logger from '../logger.js';
@@ -7,12 +11,15 @@ import { simulateTransaction } from './simulate_transaction.js';
 /**
  * Benchmarks gas (CPU/Memory) usage for a Stellar/Soroban contract execution.
  * Compares Pulsar-reported gas with actual resource usage.
- * @param contractId - The contract to benchmark
- * @param method - The contract method to invoke
- * @param args - Arguments for the contract method
- * @param account - The account executing the contract
+ * @param xdr - Base64 transaction envelope XDR to simulate
+ * @param network - Optional Stellar network override
  */
 export async function benchmarkGas({
+  xdr,
+  network,
+}: {
+  xdr: string;
+  network?: 'mainnet' | 'testnet' | 'futurenet' | 'custom';
   contractId: _contractId,
   method: _method,
   args: _args = [],
@@ -29,6 +36,7 @@ export async function benchmarkGas({
   let simulationResult;
   let error;
   try {
+    simulationResult = await simulateTransaction({ xdr, network });
     // Note: This is a placeholder - benchmark_gas needs proper XDR transaction
     // For now, we'll create a simple mock transaction
     const mockXdr = 'AAAAAgAAAABiBz+Jd8v+Ey1eFHrRgF7b...'; // truncated example
@@ -43,6 +51,12 @@ export async function benchmarkGas({
   const memDelta = endMem - startMem;
   const pulsarGas = simulationResult?.cost?.cpu_instructions ?? null;
   logger.info(
+    {
+      cpuMs,
+      memDelta,
+      pulsarGas,
+      error,
+    },
     { cpuMs, memDelta, pulsarGas, error: error instanceof Error ? error.message : String(error) },
     'Benchmark complete'
   );
