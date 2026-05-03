@@ -22,6 +22,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { searchAssets } from './tools/search_assets.js';
 import { ammTool } from './tools/amm.js';
 import { getTokenTransferFee } from './tools/get_token_transfer_fee.js';
 import { generateContractClient } from './tools/generate_contract_client.js';
@@ -37,6 +38,7 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  SearchAssetsInputSchema,
   GetTokenTransferFeeInputSchema,
   GenerateContractClientInputSchema,
   SoulboundTokenInputSchema,
@@ -95,6 +97,32 @@ class PulsarServer {
           },
         },
         {
+          name: 'search_assets',
+          description:
+            'Search for Stellar assets by code, issuer, or minimum reputation score. Returns a list of matching assets.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              asset_code: {
+                type: 'string',
+                description: 'Optional: Filter by asset code (e.g. USDC)',
+              },
+              asset_issuer: {
+                type: 'string',
+                description: 'Optional: Filter by asset issuer public key (G...)',
+              },
+              min_reputation_score: {
+                type: 'number',
+                description:
+                  'Optional: Minimum reputation score/rating (0-10 or 0-100) to filter by.',
+              },
+              network: {
+                type: 'string',
+                enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
+                description: 'Override the configured network for this call.',
+              },
+            },
+            required: [],
           name: 'decode_ledger_entry',
           description: 'Decode LedgerEntry XDR to JSON.',
           inputSchema: {
@@ -156,6 +184,8 @@ class PulsarServer {
         },
         {
           name: 'fetch_contract_spec',
+          description:
+            'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
@@ -652,6 +682,25 @@ class PulsarServer {
             };
           }
 
+          case 'search_assets': {
+            const parsed = SearchAssetsInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for search_assets`,
+                parsed.error.format()
+              );
+            }
+            const result = await searchAssets(parsed.data);
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(result),
+                },
+              ],
+            };
+          }
+
           case 'fetch_contract_spec': {
             const parsed = fetchContractSpecSchema.safeParse(args);
             if (!parsed.success) {
@@ -744,6 +793,7 @@ class PulsarServer {
             const parsed = BatchEventsInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
+                `Invalid input for compute_vesting_schedule`,
                 `Invalid input for batch_events`,
                 parsed.error.format()
               );
@@ -808,6 +858,7 @@ class PulsarServer {
             const parsed = GenerateContractClientInputSchema.safeParse(args);
             if (!parsed.success) {
               throw new PulsarValidationError(
+                `Invalid input for deploy_contract`,
                 `Invalid input for generate_contract_client`,
                 parsed.error.format()
               );

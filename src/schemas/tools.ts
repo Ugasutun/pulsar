@@ -282,7 +282,27 @@ export const DeployContractInputSchema = z.object({
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
 /**
-<<<<<<< feat/fee-on-transfer-support-184
+ * Schema for search_assets tool
+ *
+ * Inputs:
+ * - asset_code: Optional asset code to search for
+ * - asset_issuer: Optional asset issuer to search for
+ * - min_reputation_score: Optional minimum reputation score (requires stellar.expert)
+ * - network: Optional network override
+ */
+export const SearchAssetsInputSchema = z.object({
+  asset_code: z.string().optional().describe('Filter by asset code (e.g. USDC)'),
+  asset_issuer: StellarPublicKeySchema.optional().describe('Filter by asset issuer public key'),
+  min_reputation_score: z
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe('Minimum reputation score/rating (0-100) to filter by'),
+  network: NetworkSchema.optional(),
+});
+
+export type SearchAssetsInput = z.infer<typeof SearchAssetsInputSchema>;
  * Schema for get_token_transfer_fee tool
  *
  * Inputs:
@@ -304,7 +324,6 @@ export const GetTokenTransferFeeInputSchema = z.object({
 });
 
 export type GetTokenTransferFeeInput = z.infer<typeof GetTokenTransferFeeInputSchema>;
-=======
  * Schema for generate_contract_client tool
  *
  * Inputs:
@@ -506,4 +525,4 @@ export const BatchEventsInputSchema = z.object({
 });
 
 export type BatchEventsInput = z.infer<typeof BatchEventsInputSchema>;
->>>>>>> main
+
