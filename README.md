@@ -40,6 +40,7 @@
   - [soroban_math](#soroban_math)
   - [compute_vesting_schedule](#compute_vesting_schedule)
   - [deploy_contract](#deploy_contract)
+  - [optimize_contract_bytecode](#optimize_contract_bytecode)
   - [get_protocol_version](#get_protocol_version)
   - [amm](#amm)
   - [get_token_transfer_fee](#get_token_transfer_fee)
@@ -955,6 +956,11 @@ Builds a Stellar transaction for deploying a Soroban smart contract. Supports tw
 
 ---
 
+### `optimize_contract_bytecode`
+
+Analyzes a Soroban contract WASM blob and provides bytecode-size diagnostics, size-limit checks, and optimization actions that align with Stellar/Soroban best practices.
+
+This tool is designed for pre-deployment quality gates and CI enforcement.
 ### `get_protocol_version`
 
 Retrieves the current Stellar protocol version and network information from Horizon. Returns protocol version, Horizon version, supported features, and upgrade status to help track network capabilities and feature availability.
@@ -963,6 +969,9 @@ Retrieves the current Stellar protocol version and network information from Hori
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
+| `wasm_path` | `string` | Yes | Path to the WASM file to analyze |
+| `max_size_kb` | `number` | No | Maximum allowed size in KB (default: `256`) |
+| `strict_mode` | `boolean` | No | If `true`, returns an error when size exceeds `max_size_kb` |
 | `network` | `string` | No | Override network: `mainnet`, `testnet`, `futurenet`, `custom` |
 ### `amm`
 
@@ -1000,6 +1009,39 @@ Exchange one asset for another using the AMM pool. The tool builds a transaction
 
 ```jsonc
 {
+  "wasm_path": "/workspace/target/wasm32v1-none/release/governor.wasm",
+  "size_bytes": 178432,
+  "size_kb": 174.25,
+  "max_size_kb": 256,
+  "exceeds_limit": false,
+  "diagnostics": {
+    "custom_section_bytes": 8120,
+    "code_section_bytes": 129744,
+    "data_section_bytes": 14688,
+    "section_breakdown": []
+  },
+  "suggested_commands": [
+    "cargo build --release --target wasm32v1-none",
+    "stellar contract optimize --wasm <input.wasm> --wasm-out <optimized.wasm>",
+    "wasm-opt -Oz -o <optimized.wasm> <input.wasm>"
+  ],
+  "recommendations": [
+    {
+      "id": "strip-custom-sections",
+      "priority": "high",
+      "title": "Strip debug/custom sections",
+      "rationale": "Custom/debug sections increase binary size and are not needed for on-chain execution.",
+      "action": "Enable symbol stripping and optimization pass to remove custom sections from the final WASM artifact."
+    }
+  ]
+}
+```
+
+See [docs/benchmark_gas.md](./docs/benchmark_gas.md) and [docs/contract-bytecode-optimization.md](./docs/contract-bytecode-optimization.md) for workflow guidance.
+
+**Example prompt:**
+
+> _"Analyze `./target/wasm32v1-none/release/governor.wasm` and tell me how to get it under 256 KB."_
   "network": "testnet",
   "protocol_version": 20,
   "horizon_version": "4.0.0",

@@ -282,6 +282,31 @@ export const DeployContractInputSchema = z.object({
 export type DeployContractInput = z.infer<typeof DeployContractInputSchema>;
 
 /**
+ * Schema for optimize_contract_bytecode tool
+ *
+ * Inputs:
+ * - wasm_path: File system path to the WASM blob to analyze
+ * - max_size_kb: Size threshold in KB to check against (default: 256)
+ * - strict_mode: Throw validation error if size exceeds max_size_kb
+ */
+export const OptimizeContractBytecodeInputSchema = z.object({
+  wasm_path: z
+    .string()
+    .min(1, { message: 'wasm_path is required' })
+    .describe('Path to contract WASM file on disk'),
+  max_size_kb: z
+    .number()
+    .int()
+    .positive({ message: 'max_size_kb must be greater than 0' })
+    .default(256)
+    .describe('Maximum allowed contract bytecode size in KB'),
+  strict_mode: z
+    .boolean()
+    .default(false)
+    .describe('If true, return error when WASM size is above max_size_kb'),
+});
+
+export type OptimizeContractBytecodeInput = z.infer<typeof OptimizeContractBytecodeInputSchema>;
  * Schema for get_protocol_version tool
  *
  * Inputs:

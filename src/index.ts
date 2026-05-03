@@ -22,6 +22,7 @@ import { sorobanMath } from './tools/soroban_math.js';
 import { decodeLedgerEntryTool, decodeLedgerEntrySchema } from './tools/decode_ledger_entry.js';
 import { computeVestingSchedule } from './tools/compute_vesting_schedule.js';
 import { deployContract } from './tools/deploy_contract.js';
+import { optimizeContractBytecode } from './tools/optimize_contract_bytecode.js';
 import { getProtocolVersion } from './tools/get_protocol_version.js';
 import { exportData } from './tools/export_data.js';
 import { checkNetworkStatusTool } from './tools/check_network_status.js';
@@ -43,6 +44,7 @@ import {
   SorobanMathInputSchema,
   ComputeVestingScheduleInputSchema,
   DeployContractInputSchema,
+  OptimizeContractBytecodeInputSchema,
   GetProtocolVersionInputSchema,
   ExportDataInputSchema,
   CheckNetworkStatusInputSchema,
@@ -208,6 +210,8 @@ class PulsarServer {
         },
         {
           name: 'fetch_contract_spec',
+          description:
+            'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description: 'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
@@ -874,6 +878,31 @@ class PulsarServer {
             },
           },
         },
+        {
+          name: 'optimize_contract_bytecode',
+          description:
+            'Analyze a Soroban contract WASM file for bytecode size risk and return optimization actions, diagnostics, and CI-friendly size checks.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              wasm_path: {
+                type: 'string',
+                description: 'Path to the contract WASM file to analyze.',
+              },
+              max_size_kb: {
+                type: 'number',
+                default: 256,
+                description: 'Maximum allowed bytecode size in KB.',
+              },
+              strict_mode: {
+                type: 'boolean',
+                default: false,
+                description: 'If true, returns an error when bytecode size exceeds max_size_kb.',
+              },
+            },
+            required: ['wasm_path'],
+          },
+        },
       ],
     }));
 
@@ -1225,6 +1254,20 @@ class PulsarServer {
               throw new PulsarValidationError(`Invalid input for get_protocol_version`, parsed.error.format());
             }
             const result = await getProtocolVersion(parsed.data);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            };
+          }
+
+          case 'optimize_contract_bytecode': {
+            const parsed = OptimizeContractBytecodeInputSchema.safeParse(args);
+            if (!parsed.success) {
+              throw new PulsarValidationError(
+                `Invalid input for optimize_contract_bytecode`,
+                parsed.error.format()
+              );
+            }
+            const result = await optimizeContractBytecode(parsed.data);
             return {
               content: [{ type: 'text', text: JSON.stringify(result) }],
             };
