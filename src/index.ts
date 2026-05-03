@@ -11,6 +11,8 @@ import {
 import { config } from './config.js';
 
 import { config } from './config.js';
+
+import { config } from './config.js';
 import { TOOL_REGISTRY } from './registry.js';
 import logger from './logger.js';
 import { PulsarError, PulsarNetworkError, PulsarValidationError } from './errors.js';
@@ -128,6 +130,8 @@ import {
 
 import logger from './logger.js';
 import { PulsarError, PulsarNetworkError, PulsarValidationError } from './errors.js';
+import { applyFieldProjection } from './schemas/index.js';
+import { initializeI18n } from './i18n/index.js';
 import { logToolExecution } from './audit.js';
 import { validateToolOutput } from './utils/output-validation.js';
 import type { ToolName } from './constants/tools.js';
@@ -256,6 +260,12 @@ class PulsarServer {
                 enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
                 description: 'Override the configured network for this call.',
               },
+              fields: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Subset of top-level response fields to return. Omit to receive the full response.',
+              },
             },
             required: ['account_ids'],
           },
@@ -336,6 +346,12 @@ class PulsarServer {
                 enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
                 description: 'Override the active network for this call.',
               },
+              fields: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Subset of top-level response fields to return. Omit to receive the full response.',
+              },
           description: 'Fetch contract ABI/spec.',
           inputSchema: {
             type: 'object',
@@ -360,6 +376,8 @@ class PulsarServer {
         },
         {
           name: 'fetch_contract_spec',
+          description:
+            'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
             'Fetch the ABI/interface spec of a deployed Soroban contract. Returns decoded function signatures, parameter types, and emitted event schemas.',
           description:
@@ -410,6 +428,12 @@ class PulsarServer {
                 type: 'string',
                 enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
                 description: 'Override the active network for this call.',
+              },
+              fields: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Subset of top-level response fields to return. Omit to receive the full response.',
                 description: 'Override the configured network for this call.',
               },
               action: {
@@ -463,6 +487,12 @@ class PulsarServer {
                 type: 'string',
                 enum: ['mainnet', 'testnet', 'futurenet', 'custom'],
                 description: 'Override the configured network for this call.',
+              },
+              fields: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Subset of top-level response fields to return. Omit to receive the full response.',
               },
             },
             required: ['contract_id', 'storage_type'],
@@ -562,6 +592,12 @@ class PulsarServer {
               compounds_per_period: {
                 type: 'number',
                 description: 'Compounding frequency per period, default 1 (compound_interest).',
+              },
+              fields: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Subset of top-level response fields to return. Omit to receive the full response.',
               },
               value: { type: 'number', description: 'Numeric value for basis-point conversion.' },
             },
@@ -690,6 +726,12 @@ class PulsarServer {
               address: {
                 type: 'string',
                 description: 'Stellar public key (G...) or Soroban contract ID (C...). Required for add, remove, check.',
+              },
+              fields: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Subset of top-level response fields to return. Omit to receive the full response.',
               },
             },
             required: ['action'],
@@ -1729,6 +1771,7 @@ class PulsarServer {
         switch (name) {
           case 'get_account_balance': {
             const parsed = GetAccountBalanceInputSchema.safeParse(args);
+            if (!parsed.success) {
       const tool = TOOL_REGISTRY.find((t) => t.name === name);
 
       if (!tool) {
@@ -1765,6 +1808,7 @@ class PulsarServer {
               content: [
                 {
                   type: 'text',
+                  text: JSON.stringify(applyFieldProjection(result, parsed.data.fields)),
                   text: JSON.stringify(result),
                 },
               ],
@@ -1859,6 +1903,10 @@ class PulsarServer {
               content: [
                 {
                   type: 'text',
+                  text: JSON.stringify(applyFieldProjection(result, parsed.data.fields)),
+                },
+              ],
+            };
                   text: JSON.stringify(result),
                 },
               ],
@@ -1919,7 +1967,12 @@ class PulsarServer {
             return this.successResponse(toolName, result);
             const result = await trackToolExecution('submit_transaction', () => submitTransaction(parsed.data));
             return {
-              content: [{ type: 'text', text: JSON.stringify(result) }],
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(applyFieldProjection(result, parsed.data.fields)),
+                },
+              ],
             };
             const result = await submitTransaction(parsed.data);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -1988,7 +2041,12 @@ class PulsarServer {
             }
             const result = await simulateTransactionsSequence(parsed.data);
             return {
-              content: [{ type: 'text', text: JSON.stringify(result) }],
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(applyFieldProjection(result, parsed.data.fields)),
+                },
+              ],
             };
           }
 
@@ -2048,7 +2106,12 @@ class PulsarServer {
             }
             const result = batchEvents(parsed.data);
             return {
-              content: [{ type: 'text', text: JSON.stringify(result) }],
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(applyFieldProjection(result, parsed.data.fields)),
+                },
+              ],
             };
           }
 
@@ -2416,7 +2479,12 @@ class PulsarServer {
             }
             const result = await decodeLedgerEntryTool(parsed.data);
             return {
-              content: [{ type: 'text', text: JSON.stringify(result) }],
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(applyFieldProjection(result, parsed.data.fields)),
+                },
+              ],
             };
           }
 
@@ -2602,6 +2670,7 @@ if (args.includes('--debug') || args.includes('-d')) {
   });
 }
 const pulsar = new PulsarServer();
+initializeI18n({ language: config.language });
 pulsar.run().catch((error) => {
   logger.fatal({ error }, 'Fatal error in pulsar server');
   process.exit(1);
